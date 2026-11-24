@@ -67,3 +67,44 @@ status: active
 - 在可信签名实验通过前，不得宣称正式发布已可安全分发。
 - 对本决定的任何修改都必须追加新决策记录，不得静默改写本条历史。
 
+## DEC-2026-11-24-002：v0 使用 GitHub Releases 分发
+
+- 状态：已接受
+- 决策日期：2026-11-24
+- 决策人：项目负责人
+- 批准 ID：`PHASE0-CLOSE-2026-11-24-R1`
+- 独立证据复核：`/root/independent_reviewer` 对最终定稿包结论为 PASS（Critical 0 / Major 0 / Minor 0）
+- 决策范围：v0 构建工具链、canonical 分发渠道、支持平台、发布资产和可信稳定发布门槛
+
+### 决定
+
+v0 固定使用 Go `1.27.4` 构建 Windows amd64、Linux amd64（glibc）和 macOS arm64 原生产物，以 GitHub Releases 作为 canonical artifact source。Windows 发布 `.zip`、Linux 发布 `.tar.gz`、macOS 发布可 notarize/staple 的 `.dmg`，并同时发布 `SHA256SUMS`、release manifest、变更说明和每个资产的 provenance attestation。
+
+稳定发布必须满足：公开仓库或已验证的 GitHub Enterprise Cloud attestation 资格；Windows SHA-256 Authenticode、RFC 3161 时间戳和发布者身份验证；macOS Developer ID、hardened runtime、notarization、stapling 与 Gatekeeper 验证。任一门禁或凭证缺失时只允许 draft/pre-release，不得称为可信稳定发布。
+
+v0 不以 `curl | shell`、自更新器或 winget/Homebrew/apt 作为主入口。用户或受控 Agent 下载明确版本并验证 manifest、摘要、provenance 与平台签名后运行 `plan`。系统包管理器以后可以作为镜像入口，但不得形成第二套版本事实。
+
+完整决策和可执行验收见[阶段 0 最终定稿包](./正式项目接入/16-阶段0最终定稿包.md)。
+
+### 推翻条件
+
+只有出现新的可复核证据并获得项目负责人批准，才允许改变 canonical 渠道。包括：GitHub Releases 无法满足组织合规或区域可用性；目标平台范围改变；artifact attestation 资格长期无法获得；受控镜像能保持相同 manifest、摘要和 provenance 且显著降低交付风险。
+
+## DEC-2026-11-24-003：Go 骨架通过人工放行并进入阶段 1
+
+- 状态：已接受
+- 决策日期：2026-11-24
+- 决策人：项目负责人
+- 批准 ID：`PHASE0-CLOSE-2026-11-24-R1`
+- 决策范围：阶段 0 完成状态、正式源码骨架和阶段 1 的首项工作边界
+
+### 决定
+
+项目负责人确认 `tool/` 的最小 CLI、测试入口和零第三方依赖结构可以承载后续开发。阶段 0 完成，项目进入阶段 1；首项工作必须先用黑盒 contract tests 冻结最小只读 `plan` 行为，再写实现。
+
+该放行不表示安装器、自动校验器、状态机、可信签名发布或治理实例接入已经完成。阶段 1 只验证核心路径，不提前启用阶段 2–3 的多角色状态机和重型证据治理。
+
+### 推翻条件
+
+若 contract tests 证明当前目录阻碍跨平台构建、测试隔离或公共命令稳定性，可通过新 ADR 调整骨架；不得为了复用实验代码而直接把 Python PoC 或 installer-lifecycle 候选复制进正式源码。
+
