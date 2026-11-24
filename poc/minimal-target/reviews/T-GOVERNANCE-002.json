@@ -1,0 +1,74 @@
+{
+  "task_id": "T-GOVERNANCE-002",
+  "reviewer_agent_id": "independent-reviewer",
+  "reviewer_session_id": "independent-reviewer-run-1",
+  "decision": "REJECT",
+  "pre_mortem": "最可能的治理失效是 Agent 将任意字符串写入 --approved-by 后自行晋级，或新增治理实现绕过任务契约与 evidence/review/audit 链路；其次是阶段门禁在升级时意外减少，或新逻辑破坏既有任务审计。",
+  "findings": [
+    {
+      "priority": "P1",
+      "title": "人工批准仅由任意非空字符串声明，未被 promote 可信验证",
+      "location": ".ai-governance/gate.py:promote_command/parser",
+      "detail": "CLI 虽要求 --approved-by，执行函数也拒绝空白值，但任何 Agent 都可传入任意非空值并触发写入；本地 gate 没有验证批准主体来自人工或可信批准记录。因此代码无法独立保证‘必须人工批准’，只能依赖 AGENTS.md 的行为约定。"
+    },
+    {
+      "priority": "P1",
+      "title": "新增治理能力缺少任务契约和 Executor evidence，无法完成本地 audit",
+      "location": "tasks/T-GOVERNANCE-002.json (不存在)",
+      "detail": "本地启动协议要求先读取并校验指定任务，完成声明还必须具有任务、证据、独立审查记录并通过 gate.py audit。tasks/ 与 evidence/ 均无 T-GOVERNANCE-002 产物，因此本次新增实现无法按仓库自身协议审计。"
+    }
+  ],
+  "checks": [
+    {
+      "name": "成熟度信号与当前阶段一致",
+      "result": "PASS",
+      "detail": "当前 phase=3；maturity.json 得到 recommended_phase=3，触发项为 core_hypothesis_proven、first_external_user、team_size>1。"
+    },
+    {
+      "name": "阶段 0 到 4 门禁单调增强",
+      "result": "PASS",
+      "detail": "各阶段门禁数量为 [2, 5, 6, 8, 9]，每一阶段集合均包含前一阶段集合。"
+    },
+    {
+      "name": "只能逐级升级",
+      "result": "PASS",
+      "detail": "无落盘 mock 在 recommended_phase=4、current=1 时实际调用 promote_command，结果仅升级到 2，历史记录为 1->2。"
+    },
+    {
+      "name": "批准参数存在性",
+      "result": "PARTIAL",
+      "detail": "缺少或空白 --approved-by 会被拒绝，但非空字符串不证明批准者是人工。"
+    },
+    {
+      "name": "T-AGENT-001 回归审计",
+      "result": "PASS",
+      "detail": "完整 gate.py audit 退出码 0，输出 result=PASS、phase=3。"
+    }
+  ],
+  "commands": [
+    {
+      "cmd": "Reviewer Python stdin harness: assess maturity, compare gates 0..4, mock promote_command for approval and sequential promotion",
+      "exit_code": 0,
+      "stdout_file": "reviews/T-GOVERNANCE-002.reviewer-verify.stdout.txt",
+      "stdout_sha256": "b3c357ab21b6e363a8da9d556fed32d59361fad9df246b7847032c13d3b02536"
+    },
+    {
+      "cmd": "Reviewer Python stdin harness: call promote_command with approved_by='agent' under a no-write mock",
+      "exit_code": 0,
+      "stdout_file": "reviews/T-GOVERNANCE-002.nonhuman-approval.stdout.txt",
+      "stdout_sha256": "da39ea2b34c13e9add673df8e47485620e8c136167dcdfa00a6cdc7615100f71"
+    },
+    {
+      "cmd": "gate.py promote --project . (without --approved-by)",
+      "exit_code": 1,
+      "expected_rejection": true,
+      "output_excerpt": "the following arguments are required: --approved-by"
+    },
+    {
+      "cmd": "gate.py audit --project . --task tasks/T-AGENT-001.json --evidence evidence/T-AGENT-001.json --review reviews/T-AGENT-001.json",
+      "exit_code": 0,
+      "stdout_file": "reviews/T-GOVERNANCE-002.regression.stdout.txt",
+      "stdout_sha256": "92fd67720c716648c32e041d9ecf66a81e4db02eac344c422a6c298ca6340ab4"
+    }
+  ]
+}

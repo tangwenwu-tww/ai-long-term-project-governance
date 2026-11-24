@@ -1,0 +1,26 @@
+{
+  "task_id": "T-001",
+  "changed_files": [
+    "artifacts/result.txt"
+  ],
+  "commands": [
+    {
+      "cmd": "python .ai-governance/gate.py inspect --project .",
+      "exit_code": 0,
+      "stdout_file": "evidence/T-001.inspect.stdout",
+      "stdout_sha256": "7017314af0fb99289ccf7d3054cb711c86db82499540c81a43b1266d6ff7edd9"
+    }
+  ],
+  "acceptance_checklist": [
+    {
+      "criterion": "本地 gate 能识别阶段 3",
+      "verified": true,
+      "evidence_ref": "inspect:phase=3"
+    },
+    {
+      "criterion": "独立 Reviewer 复核运行命令",
+      "verified": true,
+      "evidence_ref": "reviews/T-001.json:commands[0]"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "task_id": "T-AGENT-001",
+  "reviewer_agent_id": "independent-reviewer",
+  "reviewer_session_id": "independent-reviewer-run-1",
+  "decision": "PASS",
+  "pre_mortem": "最可能的失败模式是业务产物手工写入了与 governance.json 或 gates_for_phase 不一致的阶段/门禁，或 Reviewer 复用 Executor 输出而未独立执行；因此原样重跑核心命令，并对 Reviewer 自有 stdout 做 canonical SHA-256 校验，同时核对 changed_files 与本任务 evidence 命名空间。",
+  "commands": [
+    {
+      "cmd": "python -c \"import json, pathlib, sys; sys.path.insert(0, '.ai-governance'); import gate; p=pathlib.Path('.').resolve(); phase=gate.governance(p)['phase']; artifact=gate.load_json(p/'artifacts'/'fresh-agent-result.json'); expected=gate.gates_for_phase(phase); assert artifact['task_id']=='T-AGENT-001'; assert artifact['author_agent_id']=='fresh-executor'; assert artifact['author_session_id']=='fresh-executor-run-1'; assert artifact['phase']==phase==3; assert artifact['gates']==expected; print(json.dumps({'gates': expected, 'phase': phase, 'result': 'PASS', 'task_id': artifact['task_id']}, ensure_ascii=False, sort_keys=True))\"",
+      "exit_code": 0,
+      "stdout_file": "reviews/T-AGENT-001.reviewer-verify.stdout.txt",
+      "stdout_sha256": "06cb9794d798965d6d9c5a4c5f4e60cd750f96fad9299c52cb9866566d41e7eb"
+    }
+  ],
+  "acceptance_checklist": [
+    {
+      "criterion": "业务产物准确记录本地治理阶段为 3",
+      "verified": true,
+      "evidence_ref": "Reviewer 原样重跑核心命令，独立输出确认 phase=3。"
+    },
+    {
+      "criterion": "业务产物准确记录当前阶段启用的门禁",
+      "verified": true,
+      "evidence_ref": "Reviewer 独立调用 gate.gates_for_phase(3) 并逐项断言业务产物 gates 相等。"
+    },
+    {
+      "criterion": "Executor 仅修改 allowed_files，并只在本任务 evidence 命名空间写协议产物",
+      "verified": true,
+      "evidence_ref": "evidence.changed_files 仅列 artifacts/fresh-agent-result.json；evidence 中本任务协议文件仅为 T-AGENT-001.json 与 T-AGENT-001.executor-verify.stdout.txt。"
+    }
+  ]
+}

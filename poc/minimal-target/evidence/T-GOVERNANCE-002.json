@@ -1,0 +1,58 @@
+{
+  "task_id": "T-GOVERNANCE-002",
+  "author_agent_id": "root-implementer",
+  "author_session_id": "root-governance-run-1",
+  "changed_files": [
+    ".ai-governance/gate.py",
+    ".ai-governance/maturity.json",
+    ".ai-governance/trust.json",
+    ".ai-governance/verify_dynamic.py",
+    "AGENTS.md"
+  ],
+  "pre_implementation_search": {
+    "cmd": "rg -n \"升级触发|阶段|人工|failure signature\" AGENTS.md .ai-governance",
+    "exit_code": 0,
+    "evidence": "复用 gate.py 阶段门禁与 JSON 协议；人工批准新增独立 trust.json 信任锚。"
+  },
+  "commands": [
+    {
+      "cmd": "python .ai-governance/verify_dynamic.py",
+      "exit_code": 0,
+      "stdout_file": "evidence/T-GOVERNANCE-002.dynamic.stdout.txt",
+      "stdout_sha256": "0aa9d41eb4663f9f81b90e2551312ecbbf2c0640978813145693b41c32d80fcc"
+    },
+    {
+      "cmd": "python .ai-governance/gate.py audit --project . --task tasks/T-AGENT-001.json --evidence evidence/T-AGENT-001.json --review reviews/T-AGENT-001.json",
+      "exit_code": 0,
+      "stdout_file": "evidence/T-GOVERNANCE-002.regression.stdout.txt",
+      "stdout_sha256": "92fd67720c716648c32e041d9ecf66a81e4db02eac344c422a6c298ca6340ab4"
+    }
+  ],
+  "acceptance_checklist": [
+    {
+      "criterion": "成熟度信号能推荐阶段 0 到 4",
+      "verified": true,
+      "evidence_ref": "poc/tests:test_maturity_signals_recommend_phases_zero_through_four；verify_dynamic current_recommended=3"
+    },
+    {
+      "criterion": "阶段晋升一次只增加一级且门禁单调增强",
+      "verified": true,
+      "evidence_ref": "verify_dynamic valid_promotion=2、gate_sizes=[2,5,6,8,9]"
+    },
+    {
+      "criterion": "伪造 token 或错误阶段绑定的批准文件不能触发晋升",
+      "verified": true,
+      "evidence_ref": "verify_dynamic forged_rejected=true；poc/tests:test_promotion_rejects_forged_or_wrong_transition_approval"
+    },
+    {
+      "criterion": "阶段晋升记录批准人、批准文件哈希和触发信号",
+      "verified": true,
+      "evidence_ref": "verify_dynamic 对 phase_history approved_by/approval_sha256 断言；gate.py 写入 triggers"
+    },
+    {
+      "criterion": "既有 T-AGENT-001 完整审计继续通过",
+      "verified": true,
+      "evidence_ref": "evidence/T-GOVERNANCE-002.regression.stdout.txt"
+    }
+  ]
+}

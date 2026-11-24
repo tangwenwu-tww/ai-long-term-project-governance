@@ -1,0 +1,1 @@
+{"gates": ["task_contract", "lifecycle_awareness", "pre_implementation_search", "scoped_change", "command_evidence", "independent_review", "hashed_stdout", "state_gate"], "phase": 3, "result": "PASS", "task_id": "T-AGENT-001"}

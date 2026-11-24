@@ -1,0 +1,35 @@
+# Local editor and operating-system files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Language and test caches
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+coverage/
+
+# Generated build and release output
+bin/
+build/
+dist/
+out/
+*.exe
+*.dll
+*.dylib
+*.so
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+
+# Downloaded runtime toolchains and experiment output
+/experiments/delivery-runtime/downloads/
+/experiments/delivery-runtime/toolchains/
+/experiments/delivery-runtime/out/
+
+# Standalone experiment repositories keep their own Git history
+/experiments/cloud-runtime-matrix/
+/experiments/installer-lifecycle-matrix/

@@ -1,0 +1,38 @@
+{
+  "task_id": "T-AGENT-001",
+  "author_agent_id": "fresh-executor",
+  "author_session_id": "fresh-executor-run-1",
+  "changed_files": [
+    "artifacts/fresh-agent-result.json"
+  ],
+  "pre_implementation_search": {
+    "cmd": "rg -n \"phase|gates\" .ai-governance",
+    "exit_code": 0,
+    "evidence": "定位到 .ai-governance/governance.json:4 的阶段配置，以及 .ai-governance/gate.py:62-72 的阶段门禁映射；业务产物直接复用本地 phase=3 与 gates_for_phase(3) 的结果。"
+  },
+  "commands": [
+    {
+      "cmd": "python -c \"import json, pathlib, sys; sys.path.insert(0, '.ai-governance'); import gate; p=pathlib.Path('.').resolve(); phase=gate.governance(p)['phase']; artifact=gate.load_json(p/'artifacts'/'fresh-agent-result.json'); expected=gate.gates_for_phase(phase); assert artifact['task_id']=='T-AGENT-001'; assert artifact['author_agent_id']=='fresh-executor'; assert artifact['author_session_id']=='fresh-executor-run-1'; assert artifact['phase']==phase==3; assert artifact['gates']==expected; print(json.dumps({'gates': expected, 'phase': phase, 'result': 'PASS', 'task_id': artifact['task_id']}, ensure_ascii=False, sort_keys=True))\"",
+      "exit_code": 0,
+      "stdout_file": "evidence/T-AGENT-001.executor-verify.stdout.txt",
+      "stdout_sha256": "06cb9794d798965d6d9c5a4c5f4e60cd750f96fad9299c52cb9866566d41e7eb"
+    }
+  ],
+  "acceptance_checklist": [
+    {
+      "criterion": "业务产物准确记录本地治理阶段为 3",
+      "verified": true,
+      "evidence_ref": "artifacts/fresh-agent-result.json#/phase；executor-verify stdout 中 phase=3 且 result=PASS"
+    },
+    {
+      "criterion": "业务产物准确记录当前阶段启用的门禁",
+      "verified": true,
+      "evidence_ref": "artifacts/fresh-agent-result.json#/gates；验证命令与 gate.gates_for_phase(3) 逐项比较"
+    },
+    {
+      "criterion": "Executor 仅修改 allowed_files，并只在本任务 evidence 命名空间写协议产物",
+      "verified": true,
+      "evidence_ref": "changed_files 仅含 artifacts/fresh-agent-result.json；协议产物仅为 evidence/T-AGENT-001.json 与 evidence/T-AGENT-001.executor-verify.stdout.txt"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "task_id": "T-AGENT-001",
+  "title": "由全新 Agent 证明本地治理实例可独立驱动任务",
+  "phase": 3,
+  "author_agent_id": "fresh-executor",
+  "author_session_id": "fresh-executor-run-1",
+  "acceptance_criteria": [
+    "业务产物准确记录本地治理阶段为 3",
+    "业务产物准确记录当前阶段启用的门禁",
+    "Executor 仅修改 allowed_files，并只在本任务 evidence 命名空间写协议产物"
+  ],
+  "allowed_files": [
+    "artifacts/fresh-agent-result.json"
+  ],
+  "pre_implementation_search": {
+    "commands": [
+      "rg -n \"phase|gates\" .ai-governance"
+    ],
+    "evidence": "执行后填写：列出本地阶段配置与门禁实现位置，并说明本任务如何复用。"
+  },
+  "doc_type": "none",
+  "doc_purpose": ""
+}

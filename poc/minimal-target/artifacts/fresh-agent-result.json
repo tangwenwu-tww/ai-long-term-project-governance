@@ -1,0 +1,16 @@
+{
+  "task_id": "T-AGENT-001",
+  "author_agent_id": "fresh-executor",
+  "author_session_id": "fresh-executor-run-1",
+  "phase": 3,
+  "gates": [
+    "task_contract",
+    "lifecycle_awareness",
+    "pre_implementation_search",
+    "scoped_change",
+    "command_evidence",
+    "independent_review",
+    "hashed_stdout",
+    "state_gate"
+  ]
+}

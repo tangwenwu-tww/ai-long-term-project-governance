@@ -1,0 +1,29 @@
+{
+  "task_id": "T-GOVERNANCE-002",
+  "title": "增加基于成熟度信号和可信人工批准的阶段晋升",
+  "phase": 3,
+  "author_agent_id": "root-implementer",
+  "author_session_id": "root-governance-run-1",
+  "acceptance_criteria": [
+    "成熟度信号能推荐阶段 0 到 4",
+    "阶段晋升一次只增加一级且门禁单调增强",
+    "伪造 token 或错误阶段绑定的批准文件不能触发晋升",
+    "阶段晋升记录批准人、批准文件哈希和触发信号",
+    "既有 T-AGENT-001 完整审计继续通过"
+  ],
+  "allowed_files": [
+    ".ai-governance/gate.py",
+    ".ai-governance/maturity.json",
+    ".ai-governance/trust.json",
+    ".ai-governance/verify_dynamic.py",
+    "AGENTS.md"
+  ],
+  "pre_implementation_search": {
+    "commands": [
+      "rg -n \"升级触发|阶段|人工|failure signature\" AGENTS.md .ai-governance"
+    ],
+    "evidence": "复用现有 gate.py 的阶段门禁与本地 JSON 协议；新增成熟度评估和独立信任锚，不引入第二套运行时。"
+  },
+  "doc_type": "none",
+  "doc_purpose": ""
+}

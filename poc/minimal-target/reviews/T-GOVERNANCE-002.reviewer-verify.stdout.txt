@@ -1,0 +1,1 @@
+{"assessment": {"recommended_phase": 3, "triggers": ["core_hypothesis_proven", "first_external_user", "team_size>1"]}, "gate_counts": [2, 5, 6, 8, 9], "missing_or_blank_approval_blocked": true, "monotonic": true, "result": "PASS", "sequential_promotion": "1->2"}

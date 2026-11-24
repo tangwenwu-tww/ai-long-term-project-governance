@@ -1,0 +1,16 @@
+{
+  "task_id": "T-001",
+  "reviewer_agent_id": "reviewer-b",
+  "reviewer_session_id": "session-reviewer-b",
+  "decision": "PASS",
+  "findings": [],
+  "pre_mortem": "如果本机制失败，最可能是项目本地 gate 与上游方法论版本发生漂移。",
+  "commands": [
+    {
+      "cmd": "python .ai-governance/gate.py inspect --project .",
+      "exit_code": 0,
+      "stdout_file": "reviews/T-001.inspect.stdout",
+      "stdout_sha256": "7017314af0fb99289ccf7d3054cb711c86db82499540c81a43b1266d6ff7edd9"
+    }
+  ]
+}

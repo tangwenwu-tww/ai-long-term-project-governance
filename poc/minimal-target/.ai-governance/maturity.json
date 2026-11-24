@@ -1,0 +1,12 @@
+{
+  "core_hypothesis_proven": true,
+  "first_external_user": true,
+  "code_lines": 1200,
+  "module_count": 3,
+  "first_production_incident": false,
+  "team_size": 2,
+  "parallel_agent_sessions": 2,
+  "max_module_reuse": 1,
+  "compliance_requirement": false,
+  "long_term_sla_module": false
+}

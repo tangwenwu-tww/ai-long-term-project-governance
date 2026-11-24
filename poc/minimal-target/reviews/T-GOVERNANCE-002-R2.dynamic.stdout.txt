@@ -1,0 +1,2 @@
+{"from": 1, "to": 2, "gates": ["task_contract", "lifecycle_awareness", "pre_implementation_search", "scoped_change", "command_evidence", "independent_review"]}
+{"current_recommended": 3, "forged_rejected": true, "gate_sizes": [2, 5, 6, 8, 9], "valid_promotion": 2}

@@ -1,0 +1,1 @@
+{"nonhuman_approval_accepted": true, "phase": 2, "result": "REJECT_SIGNAL"}

@@ -1,0 +1,9 @@
+{
+  "main": "main.js",
+  "mainFormat": "commonjs",
+  "output": "../out/governance-node-sea.exe",
+  "disableExperimentalSEAWarning": true,
+  "useSnapshot": false,
+  "useCodeCache": false,
+  "execArgvExtension": "none"
+}

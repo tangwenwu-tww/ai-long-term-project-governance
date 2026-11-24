@@ -1,0 +1,22 @@
+{
+  "task_id": "T-001",
+  "title": "验证本地治理闭环",
+  "phase": 3,
+  "author_agent_id": "executor-a",
+  "author_session_id": "session-executor-a",
+  "acceptance_criteria": [
+    "本地 gate 能识别阶段 3",
+    "独立 Reviewer 复核运行命令"
+  ],
+  "allowed_files": [
+    "artifacts/result.txt"
+  ],
+  "pre_implementation_search": {
+    "commands": [
+      "rg -n \"phase|gates\" .ai-governance"
+    ],
+    "evidence": "找到 governance.json 与本地 gate.py；本任务复用它们，不新增第二套校验器。"
+  },
+  "doc_type": "none",
+  "doc_purpose": ""
+}

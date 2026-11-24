@@ -1,0 +1,10 @@
+{
+  "main": "main.js",
+  "mainFormat": "commonjs",
+  "executable": "../toolchains/node-v26.13.1-linux-x64/bin/node",
+  "output": "../out/governance-node-sea-linux-x64",
+  "disableExperimentalSEAWarning": true,
+  "useSnapshot": false,
+  "useCodeCache": false,
+  "execArgvExtension": "none"
+}
