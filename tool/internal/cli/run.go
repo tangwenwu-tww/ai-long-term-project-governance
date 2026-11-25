@@ -60,7 +60,7 @@ func runPlan(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cannot determine the target project directory")
 		return 2
 	}
-	result := plan.Evaluate(args[1], workingDir, time.Now())
+	result := plan.Evaluate(args[1], workingDir, time.Now(), version)
 	if len(result.Diagnostics) != 0 {
 		encoder := json.NewEncoder(stderr)
 		for _, item := range result.Diagnostics {
@@ -72,6 +72,9 @@ func runPlan(args []string, stdout, stderr io.Writer) int {
 	}
 	for _, line := range result.Lines {
 		fmt.Fprintln(stdout, line)
+	}
+	if result.Conflict {
+		return 2
 	}
 	return 0
 }

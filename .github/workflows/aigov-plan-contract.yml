@@ -1,0 +1,34 @@
+name: aigov plan contract
+
+on:
+  push:
+    paths:
+      - "tool/**"
+      - ".github/workflows/aigov-plan-contract.yml"
+  pull_request:
+    paths:
+      - "tool/**"
+      - ".github/workflows/aigov-plan-contract.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: tool
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.27.4
+          cache-dependency-path: tool/go.mod
+      - run: go test -count=1 ./...
+      - run: go vet ./...
+      - run: go mod tidy -diff

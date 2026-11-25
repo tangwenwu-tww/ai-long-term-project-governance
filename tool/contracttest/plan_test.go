@@ -529,11 +529,7 @@ func TestManifestCompoundEnvironmentAndResourceMatrix(t *testing.T) {
 		setPointer(t, manifest, "/layout/profile", "custom-v0")
 		setPointer(t, manifest, "/layout/resources", map[string]any{"agent_entry": "custom/A/b", "design_spec": "custom/a/b"})
 		got := runManifest(t, target, manifest, true)
-		if runtime.GOOS == "windows" {
-			requireOnlyDiagnostic(t, got, "E_RESOURCE_COLLISION", "/layout/resources/design_spec")
-		} else {
-			requirePlanSuccess(t, got)
-		}
+		requireOnlyDiagnostic(t, got, "E_RESOURCE_COLLISION", "/layout/resources/design_spec")
 	})
 }
 
@@ -760,6 +756,145 @@ func TestTargetTypeFailsClosed(t *testing.T) {
 	}
 }
 
+func TestPlanConditionalAndCustomPaths(t *testing.T) {
+	t.Run("selection finalized omits project decisions", func(t *testing.T) {
+		target := t.TempDir()
+		got := runManifest(t, target, manifestWithSelection(t, target), true)
+		if got.code != 0 || got.stderr != "" || strings.Contains(got.stdout, `"logical_id":"project_decisions"`) {
+			t.Fatalf("selection plan = %#v", got)
+		}
+	})
+	t.Run("custom instance path is encoded in agent content", func(t *testing.T) {
+		target := t.TempDir()
+		manifest := baseManifest(t, target)
+		setPointer(t, manifest, "/layout/profile", "custom-v0")
+		setPointer(t, manifest, "/layout/resources", map[string]any{"instance_manifest": "custom/instance`name.json"})
+		got := runManifest(t, target, manifest, true)
+		if got.code != 0 || got.stderr != "" {
+			t.Fatalf("custom path plan = %#v", got)
+		}
+		wantContent := strings.Replace(canonicalAgent, `".ai-governance/instance.json"`, `"custom/instance`+"`"+`name.json"`, 1)
+		wantHash := sha256.Sum256([]byte(wantContent))
+		if !strings.Contains(got.stdout, hex.EncodeToString(wantHash[:])) {
+			t.Fatalf("custom agent hash missing from %q", got.stdout)
+		}
+	})
+	for name, resources := range map[string]map[string]any{
+		"derived exact collision":  {"agent_entry": ".ai-governance/schemas/instance.schema.json"},
+		"derived parent collision": {"instance_manifest": ".ai-governance/schemas"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			target := t.TempDir()
+			manifest := baseManifest(t, target)
+			setPointer(t, manifest, "/layout/profile", "custom-v0")
+			setPointer(t, manifest, "/layout/resources", resources)
+			got := runManifest(t, target, manifest, true)
+			pointer := "/layout/resources/agent_entry"
+			if _, ok := resources["instance_manifest"]; ok {
+				pointer = "/layout/resources/instance_manifest"
+			}
+			requireOnlyDiagnostic(t, got, "E_RESOURCE_COLLISION", pointer)
+		})
+	}
+}
+
+func TestSymlinkTargetFailsClosed(t *testing.T) {
+	target := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.md")
+	if err := os.WriteFile(outside, []byte("outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(target, "AGENTS.md")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("host cannot create symlink fixture: %v", err)
+	}
+	got := runManifest(t, target, baseManifest(t, target), true)
+	requireOnlyDiagnostic(t, got, "E_TARGET_TYPE", "/targets/agent_entry")
+}
+
+func TestTargetSafetyAndProjectFactMatrix(t *testing.T) {
+	t.Run("arbitrary existing agent is preserved", func(t *testing.T) {
+		target := t.TempDir()
+		content := []byte("project-owned bytes\nwith no template match\n")
+		if err := os.WriteFile(filepath.Join(target, "AGENTS.md"), content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got := runManifest(t, target, baseManifest(t, target), true)
+		if got.code != 0 || got.stderr != "" {
+			t.Fatalf("existing agent plan = %#v", got)
+		}
+		sum := sha256.Sum256(content)
+		want := `"action":"NOOP","logical_id":"agent_entry","path":"AGENTS.md","ownership":"project","expected_sha256":null,"actual_sha256":"` + hex.EncodeToString(sum[:]) + `","reason":"project_fact_preserved"`
+		if !strings.Contains(got.stdout, want) {
+			t.Fatalf("project fact operation missing from %q", got.stdout)
+		}
+	})
+
+	t.Run("missing parent remains create", func(t *testing.T) {
+		target := t.TempDir()
+		manifest := baseManifest(t, target)
+		setPointer(t, manifest, "/layout/profile", "custom-v0")
+		setPointer(t, manifest, "/layout/resources", map[string]any{"agent_entry": "missing/parents/AGENTS.md"})
+		got := runManifest(t, target, manifest, true)
+		if got.code != 0 || got.stderr != "" || !strings.Contains(got.stdout, `"action":"CREATE","logical_id":"agent_entry","path":"missing/parents/AGENTS.md"`) {
+			t.Fatalf("missing parent plan = %#v", got)
+		}
+	})
+
+	t.Run("parent link or junction is escape", func(t *testing.T) {
+		target := t.TempDir()
+		outside := t.TempDir()
+		link := filepath.Join(target, "linked")
+		if runtime.GOOS == "windows" {
+			if output, err := exec.Command("cmd", "/c", "mklink", "/J", link, outside).CombinedOutput(); err != nil {
+				t.Skipf("host cannot create junction fixture: %v: %s", err, output)
+			}
+		} else if err := os.Symlink(outside, link); err != nil {
+			t.Skipf("host cannot create parent symlink fixture: %v", err)
+		}
+		manifest := baseManifest(t, target)
+		setPointer(t, manifest, "/layout/profile", "custom-v0")
+		setPointer(t, manifest, "/layout/resources", map[string]any{"agent_entry": "linked/AGENTS.md"})
+		requireOnlyDiagnostic(t, runManifest(t, target, manifest, true), "E_TARGET_ESCAPE", "/targets/agent_entry")
+	})
+
+	t.Run("broken leaf link is type", func(t *testing.T) {
+		target := t.TempDir()
+		if err := os.Symlink(filepath.Join(target, "missing"), filepath.Join(target, "AGENTS.md")); err != nil {
+			t.Skipf("host cannot create broken symlink fixture: %v", err)
+		}
+		requireOnlyDiagnostic(t, runManifest(t, target, baseManifest(t, target), true), "E_TARGET_TYPE", "/targets/agent_entry")
+	})
+
+	t.Run("special leaf is type", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("portable Go test has no unprivileged Windows special-file fixture")
+		}
+		target := t.TempDir()
+		if output, err := exec.Command("mkfifo", filepath.Join(target, "AGENTS.md")).CombinedOutput(); err != nil {
+			t.Skipf("host cannot create FIFO fixture: %v: %s", err, output)
+		}
+		requireOnlyDiagnostic(t, runManifest(t, target, baseManifest(t, target), true), "E_TARGET_TYPE", "/targets/agent_entry")
+	})
+
+	t.Run("unreadable leaf fails read", func(t *testing.T) {
+		target := t.TempDir()
+		file := filepath.Join(target, "AGENTS.md")
+		if err := os.WriteFile(file, []byte("secret\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(file, 0); err != nil {
+			t.Skipf("host cannot create unreadable fixture: %v", err)
+		}
+		defer os.Chmod(file, 0o600)
+		got := runManifest(t, target, baseManifest(t, target), true)
+		if got.code == 0 {
+			t.Skip("current identity can read mode-000 fixture")
+		}
+		requireOnlyDiagnostic(t, got, "E_TARGET_READ", "/targets/agent_entry")
+	})
+}
+
 func writeCanonicalTargets(t *testing.T, target string, conflict bool) {
 	t.Helper()
 	schemaDir := filepath.Join(target, ".ai-governance", "schemas")
@@ -893,6 +1028,7 @@ func requireOnlyDiagnostic(t *testing.T, got commandResult, code, pointer string
 		"E_ROOT_NOT_FOUND": "set ", "E_FILE_NOT_FOUND": "set ", "E_HASH_MISMATCH": "set ",
 		"E_UNKNOWN_RESOURCE": "use ", "E_UNSAFE_PATH": "use ", "E_RESOURCE_COLLISION": "map ",
 		"E_GIT_REQUIRED": "initialize ", "E_REVIEW_UNAVAILABLE": "provide ",
+		"E_TARGET_ESCAPE": "use ", "E_TARGET_TYPE": "replace ", "E_TARGET_READ": "make ",
 	}[code]
 	if wantDirection == "" || !strings.HasPrefix(diag.Message, wantDirection) {
 		t.Fatalf("diagnostic message %q lacks repair direction %q", diag.Message, wantDirection)
@@ -1056,14 +1192,10 @@ func snapshotTree(t *testing.T, root string) []string {
 				return err
 			}
 			line += "|link=" + target
-		} else if !entry.IsDir() {
+		} else if !entry.IsDir() && info.Mode().IsRegular() {
 			content, err := os.ReadFile(path)
 			if err != nil {
-				target, linkErr := os.Readlink(path)
-				if linkErr != nil {
-					return err
-				}
-				line += "|link=" + target
+				line += "|unreadable"
 				snapshot = append(snapshot, line)
 				return nil
 			}

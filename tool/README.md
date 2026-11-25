@@ -9,7 +9,7 @@ status: active
 
 ## 用途
 
-用本目录构建和验证 Go canonical source，并运行阶段 1 的实验性只读 `plan`。`plan` 严格校验安装 manifest，只输出跳过项或稳定 JSONL 诊断，不修改目标项目。
+用本目录构建和验证 Go canonical source，并运行阶段 1 的实验性只读 `plan`。`plan` 严格校验安装 manifest，输出可审核的单行 JSON 文件计划或稳定 JSONL 诊断，不修改目标项目。
 
 ## 不适用
 
@@ -42,12 +42,13 @@ $env:AIGOV_ENABLE_EXPERIMENTAL_PLAN = '1'
 if ($LASTEXITCODE -ne 0) { throw "valid plan exit code was $LASTEXITCODE" }
 ```
 
-预期 stdout：
+预期 stdout 是单行 JSON envelope，包含四个最小安装目标和条件资源；空目标仓库中的 action 为 `CREATE`/`SKIP`：
 
-```text
-SKIP project_decisions: lifecycle_not_reached
-SKIP design_spec: no_frontend
+```json
+{"contract_version":"0.2-draft","instance_id":"inst-example-01","operations":[...]}
 ```
+
+每项 operation 固定给出 `action`、`logical_id`、项目相对 `path`、`ownership`、expected/actual SHA-256 和 `reason`。已有 project-owned `AGENTS.md` 只会 `NOOP project_fact_preserved`；tool-owned 文件不一致时输出 `CONFLICT` 并返回 2。
 
 运行失败输入：
 
@@ -87,3 +88,4 @@ if ($LASTEXITCODE -ne 2) { throw "disabled plan exit code was $LASTEXITCODE" }
 
 - 2026-11-24：建立 Go 1.27 最小 CLI 骨架、自动测试和独立构建入口。
 - 2026-11-25：增加测试先行的实验性只读 `plan`、严格 manifest 校验与关闭示例。
+- 2026-11-25：把有效输出扩展为确定性安装文件计划，加入 instance/schema 字节摘要、项目事实保护与 target safety 检查；仍不提供 apply。

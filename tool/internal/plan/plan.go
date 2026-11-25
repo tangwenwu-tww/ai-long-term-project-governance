@@ -10,12 +10,13 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	contractv0 "example.invalid/aigov/contracts/v0"
 )
 
 const contractVersion = "0.2-draft"
@@ -73,6 +74,33 @@ type Diagnostic struct {
 type Result struct {
 	Lines       []string
 	Diagnostics []Diagnostic
+	Conflict    bool
+}
+
+type Operation struct {
+	Action         string  `json:"action"`
+	LogicalID      string  `json:"logical_id"`
+	Path           string  `json:"path"`
+	Ownership      string  `json:"ownership"`
+	ExpectedSHA256 *string `json:"expected_sha256"`
+	ActualSHA256   *string `json:"actual_sha256"`
+	Reason         string  `json:"reason"`
+}
+
+type outputPlan struct {
+	ContractVersion string      `json:"contract_version"`
+	InstanceID      string      `json:"instance_id"`
+	Operations      []Operation `json:"operations"`
+}
+
+type instanceManifest struct {
+	SchemaVersion          string            `json:"schema_version"`
+	InstanceID             string            `json:"instance_id"`
+	InstallContractVersion string            `json:"install_contract_version"`
+	MethodologyVersion     string            `json:"methodology_version"`
+	AssuranceLevel         string            `json:"assurance_level"`
+	Resources              map[string]string `json:"resources"`
+	ManagedFiles           map[string]string `json:"managed_files"`
 }
 
 type validator struct {
@@ -81,10 +109,13 @@ type validator struct {
 	invalid     map[string]bool
 	workingDir  string
 	now         time.Time
+	projectRoot string
+	resources   map[string]string
+	explicit    map[string]bool
 }
 
 // Evaluate reads and validates one manifest without writing to the target project.
-func Evaluate(manifestPath, workingDir string, now time.Time) Result {
+func Evaluate(manifestPath, workingDir string, now time.Time, methodologyVersion string) Result {
 	raw, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return Result{Diagnostics: []Diagnostic{diagnostic("E_JSON", "", "")}}
@@ -111,16 +142,7 @@ func Evaluate(manifestPath, workingDir string, now time.Time) Result {
 		return Result{Diagnostics: v.diagnostics}
 	}
 
-	project := root["project"].(map[string]any)
-	governance := root["governance"].(map[string]any)
-	var lines []string
-	if !governance["selection_finalized"].(bool) {
-		lines = append(lines, "SKIP project_decisions: lifecycle_not_reached")
-	}
-	if !project["has_frontend"].(bool) {
-		lines = append(lines, "SKIP design_spec: no_frontend")
-	}
-	return Result{Lines: lines}
+	return v.buildPlan(methodologyVersion)
 }
 
 func decodeJSON(raw []byte) (any, error) {
@@ -335,6 +357,9 @@ func (v *validator) validateFieldsAndEnvironment() {
 	if layoutOK {
 		v.enum(layout, "profile", "/layout/profile", []string{"default-v0", "custom-v0"})
 		v.validateResources(layout)
+		if len(v.diagnostics) == 0 {
+			v.validatePlanPathCollisions()
+		}
 	}
 	if projectOK && governanceOK {
 		v.validateEnvironment(project, governance)
@@ -528,10 +553,7 @@ func (v *validator) validateResources(layout map[string]any) {
 
 	groups := make(map[string][]string)
 	for resource, resourcePath := range effective {
-		key := resourcePath
-		if runtime.GOOS == "windows" {
-			key = asciiLower(key)
-		}
+		key := asciiLower(resourcePath)
 		groups[key] = append(groups[key], resource)
 	}
 	for _, group := range groups {
@@ -555,6 +577,323 @@ func (v *validator) validateResources(layout map[string]any) {
 			v.invalid[pointer] = true
 		}
 	}
+	v.resources = effective
+	v.explicit = explicit
+}
+
+func (v *validator) validatePlanPathCollisions() {
+	targets := map[string]string{
+		"agent_entry":       v.resources["agent_entry"],
+		"instance_manifest": v.resources["instance_manifest"],
+		"schema_root/install-manifest.schema.json": path.Join(v.resources["schema_root"], "install-manifest.schema.json"),
+		"schema_root/instance.schema.json":         path.Join(v.resources["schema_root"], "instance.schema.json"),
+		"design_spec":                              v.resources["design_spec"],
+		"project_decisions":                        v.resources["project_decisions"],
+	}
+	baseID := func(logicalID string) string {
+		if strings.HasPrefix(logicalID, "schema_root/") {
+			return "schema_root"
+		}
+		return logicalID
+	}
+	ids := make([]string, 0, len(targets))
+	for id := range targets {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	reported := make(map[string]bool)
+	for i, leftID := range ids {
+		for _, rightID := range ids[i+1:] {
+			left, right := asciiLower(targets[leftID]), asciiLower(targets[rightID])
+			if left != right && !strings.HasPrefix(left, right+"/") && !strings.HasPrefix(right, left+"/") {
+				continue
+			}
+			leftBase, rightBase := baseID(leftID), baseID(rightID)
+			pointerID := ""
+			switch {
+			case v.explicit[leftBase] && v.explicit[rightBase]:
+				if leftBase > rightBase {
+					pointerID = leftBase
+				} else {
+					pointerID = rightBase
+				}
+			case v.explicit[leftBase]:
+				pointerID = leftBase
+			case v.explicit[rightBase]:
+				pointerID = rightBase
+			default:
+				continue
+			}
+			pointer := "/layout/resources/" + escapePointer(pointerID)
+			if !reported[pointer] {
+				v.add("E_RESOURCE_COLLISION", pointer, "")
+				reported[pointer] = true
+			}
+		}
+	}
+}
+
+func (v *validator) buildPlan(methodologyVersion string) Result {
+	project := v.root["project"].(map[string]any)
+	governance := v.root["governance"].(map[string]any)
+	installSchema := contractv0.InstallManifestSchema()
+	instanceSchema := contractv0.InstanceSchema()
+	instance := instanceManifest{
+		SchemaVersion:          "0.1-draft",
+		InstanceID:             v.root["instance_id"].(string),
+		InstallContractVersion: contractVersion,
+		MethodologyVersion:     methodologyVersion,
+		AssuranceLevel:         "declarative",
+		Resources:              v.resources,
+		ManagedFiles: map[string]string{
+			"schema_root/install-manifest.schema.json": sha256Hex(installSchema),
+			"schema_root/instance.schema.json":         sha256Hex(instanceSchema),
+		},
+	}
+	instanceBytes, err := marshalJSONLine(instance)
+	if err != nil {
+		return Result{Diagnostics: []Diagnostic{diagnostic("E_JSON", "", "")}}
+	}
+	if err := validateInstanceBytes(instanceBytes, v.resources, methodologyVersion); err != nil {
+		return Result{Diagnostics: []Diagnostic{diagnostic("E_JSON", "", "")}}
+	}
+	facts := struct {
+		CoreHypothesis string   `json:"core_hypothesis"`
+		InstanceID     string   `json:"instance_id"`
+		Name           string   `json:"name"`
+		Phase          int64    `json:"phase"`
+		Technology     []string `json:"technology"`
+	}{
+		CoreHypothesis: governance["core_hypothesis"].(string),
+		InstanceID:     v.root["instance_id"].(string),
+		Name:           project["name"].(string),
+		Phase:          mustInteger(governance["phase"]),
+		Technology:     stringValues(project["technology"].([]any)),
+	}
+	factsBytes, _ := marshalJSON(facts)
+	instancePathBytes, _ := marshalJSON(v.resources["instance_manifest"])
+	agentBytes := []byte("---\ntype: reference\npurpose: 目标项目的 AI Agent 本地启动入口与项目事实摘要\naudience: 参与目标项目的 AI Agent 与人类协作者\nstatus: active\n---\n\n# Target project AI entry\n\nRead this file first, then the instance manifest at:\n\n    " + string(instancePathBytes) + "\n\n## Project facts\n\n    " + string(factsBytes) + "\n\n## Working boundary\n\nFollow the recorded phase and repository-local task constraints. Do not treat generated tool files as authority over confirmed project facts.\n")
+
+	targets := []struct {
+		logicalID, relative, ownership string
+		expected                       []byte
+	}{
+		{"agent_entry", v.resources["agent_entry"], "project", agentBytes},
+		{"instance_manifest", v.resources["instance_manifest"], "tool", instanceBytes},
+		{"schema_root/install-manifest.schema.json", path.Join(v.resources["schema_root"], "install-manifest.schema.json"), "tool", installSchema},
+		{"schema_root/instance.schema.json", path.Join(v.resources["schema_root"], "instance.schema.json"), "tool", instanceSchema},
+	}
+	operations := make([]Operation, 0, 6)
+	conflict := false
+	for _, target := range targets {
+		exists, actual, diag := v.readTarget(target.logicalID, target.relative)
+		if diag != nil {
+			v.diagnostics = append(v.diagnostics, *diag)
+			continue
+		}
+		expectedHash := sha256Hex(target.expected)
+		operation := Operation{LogicalID: target.logicalID, Path: target.relative, Ownership: target.ownership}
+		if !exists {
+			operation.Action, operation.Reason = "CREATE", "target_missing"
+			operation.ExpectedSHA256 = stringPtr(expectedHash)
+		} else if target.ownership == "project" {
+			operation.Action, operation.Reason = "NOOP", "project_fact_preserved"
+			operation.ActualSHA256 = stringPtr(sha256Hex(actual))
+		} else {
+			actualHash := sha256Hex(actual)
+			operation.ExpectedSHA256 = stringPtr(expectedHash)
+			operation.ActualSHA256 = stringPtr(actualHash)
+			if actualHash == expectedHash {
+				operation.Action, operation.Reason = "NOOP", "managed_content_matches"
+			} else {
+				operation.Action, operation.Reason = "CONFLICT", "managed_content_differs"
+				conflict = true
+			}
+		}
+		operations = append(operations, operation)
+	}
+	if len(v.diagnostics) != 0 {
+		sort.Slice(v.diagnostics, func(i, j int) bool {
+			if v.diagnostics[i].Path != v.diagnostics[j].Path {
+				return v.diagnostics[i].Path < v.diagnostics[j].Path
+			}
+			return v.diagnostics[i].Code < v.diagnostics[j].Code
+		})
+		return Result{Diagnostics: v.diagnostics}
+	}
+	if !project["has_frontend"].(bool) {
+		operations = append(operations, Operation{Action: "SKIP", LogicalID: "design_spec", Path: v.resources["design_spec"], Ownership: "project", Reason: "no_frontend"})
+	} else {
+		operations = append(operations, Operation{Action: "SKIP", LogicalID: "design_spec", Path: v.resources["design_spec"], Ownership: "project", Reason: "design_facts_not_provided"})
+	}
+	if !governance["selection_finalized"].(bool) {
+		operations = append(operations, Operation{Action: "SKIP", LogicalID: "project_decisions", Path: v.resources["project_decisions"], Ownership: "project", Reason: "lifecycle_not_reached"})
+	}
+	sort.Slice(operations, func(i, j int) bool {
+		if operations[i].Path != operations[j].Path {
+			return operations[i].Path < operations[j].Path
+		}
+		return operations[i].LogicalID < operations[j].LogicalID
+	})
+	out := outputPlan{ContractVersion: contractVersion, InstanceID: v.root["instance_id"].(string), Operations: operations}
+	raw, err := marshalJSON(out)
+	if err != nil {
+		return Result{Diagnostics: []Diagnostic{diagnostic("E_JSON", "", "")}}
+	}
+	return Result{Lines: []string{string(raw)}, Conflict: conflict}
+}
+
+func (v *validator) readTarget(logicalID, relative string) (bool, []byte, *Diagnostic) {
+	parts := strings.Split(filepath.FromSlash(relative), string(filepath.Separator))
+	current := v.projectRoot
+	for index, part := range parts {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if os.IsNotExist(err) {
+			return false, nil, nil
+		}
+		if err != nil {
+			diag := diagnostic("E_TARGET_READ", "/targets/"+escapePointer(logicalID), "")
+			return false, nil, &diag
+		}
+		resolved, resolveErr := filepath.EvalSymlinks(current)
+		followed, statErr := os.Stat(current)
+		modeChangesWhenFollowed := statErr == nil && (info.IsDir() != followed.IsDir() || info.Mode().IsRegular() != followed.Mode().IsRegular())
+		isLinkLike := info.Mode()&os.ModeSymlink != 0 || modeChangesWhenFollowed || (resolveErr == nil && !sameFilesystemPath(current, resolved))
+		if isLinkLike {
+			code := "E_TARGET_ESCAPE"
+			if index == len(parts)-1 {
+				code = "E_TARGET_TYPE"
+			}
+			diag := diagnostic(code, "/targets/"+escapePointer(logicalID), "")
+			return false, nil, &diag
+		}
+		if index < len(parts)-1 {
+			if !info.IsDir() {
+				diag := diagnostic("E_TARGET_TYPE", "/targets/"+escapePointer(logicalID), "")
+				return false, nil, &diag
+			}
+			continue
+		}
+		if !info.Mode().IsRegular() {
+			diag := diagnostic("E_TARGET_TYPE", "/targets/"+escapePointer(logicalID), "")
+			return false, nil, &diag
+		}
+		raw, err := os.ReadFile(current)
+		if err != nil {
+			diag := diagnostic("E_TARGET_READ", "/targets/"+escapePointer(logicalID), "")
+			return false, nil, &diag
+		}
+		return true, raw, nil
+	}
+	return false, nil, nil
+}
+
+func sameFilesystemPath(left, right string) bool {
+	left, right = filepath.Clean(left), filepath.Clean(right)
+	if filepath.Separator == '\\' {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
+}
+
+func marshalJSON(value any) ([]byte, error) {
+	var buffer strings.Builder
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return nil, err
+	}
+	return []byte(strings.TrimSuffix(buffer.String(), "\n")), nil
+}
+
+func marshalJSONLine(value any) ([]byte, error) {
+	raw, err := marshalJSON(value)
+	if err != nil {
+		return nil, err
+	}
+	return append(raw, '\n'), nil
+}
+
+func sha256Hex(value []byte) string {
+	sum := sha256.Sum256(value)
+	return hex.EncodeToString(sum[:])
+}
+
+func stringPtr(value string) *string { return &value }
+
+func mustInteger(value any) int64 {
+	parsed, _ := strconv.ParseInt(value.(json.Number).String(), 10, 64)
+	return parsed
+}
+
+func stringValues(values []any) []string {
+	result := make([]string, len(values))
+	for i, value := range values {
+		result[i] = value.(string)
+	}
+	return result
+}
+
+func validateInstanceBytes(raw []byte, expectedResources map[string]string, methodologyVersion string) error {
+	value, err := decodeJSON(raw)
+	if err != nil {
+		return err
+	}
+	root, ok := value.(map[string]any)
+	if !ok || !exactObjectKeys(root, []string{"schema_version", "instance_id", "install_contract_version", "methodology_version", "assurance_level", "resources", "managed_files"}) {
+		return fmt.Errorf("invalid instance root")
+	}
+	constants := map[string]string{
+		"schema_version": "0.1-draft", "install_contract_version": contractVersion,
+		"methodology_version": methodologyVersion, "assurance_level": "declarative",
+	}
+	for key, want := range constants {
+		if got, ok := root[key].(string); !ok || got != want {
+			return fmt.Errorf("invalid %s", key)
+		}
+	}
+	if id, ok := root["instance_id"].(string); !ok || !instancePattern.MatchString(id) {
+		return fmt.Errorf("invalid instance_id")
+	}
+	resources, ok := root["resources"].(map[string]any)
+	if !ok || len(resources) != len(expectedResources) {
+		return fmt.Errorf("invalid resources")
+	}
+	seen := make(map[string]bool)
+	for key, want := range expectedResources {
+		got, ok := resources[key].(string)
+		normalized, safe := safeRelativePath(got)
+		collisionKey := asciiLower(normalized)
+		if !ok || !safe || normalized != got || got != want || seen[collisionKey] {
+			return fmt.Errorf("invalid resource %s", key)
+		}
+		seen[collisionKey] = true
+	}
+	managed, ok := root["managed_files"].(map[string]any)
+	wantManaged := []string{"schema_root/install-manifest.schema.json", "schema_root/instance.schema.json"}
+	if !ok || !exactObjectKeys(managed, wantManaged) {
+		return fmt.Errorf("invalid managed_files")
+	}
+	for _, key := range wantManaged {
+		value, ok := managed[key].(string)
+		if !ok || !shaPattern.MatchString(value) {
+			return fmt.Errorf("invalid managed hash")
+		}
+	}
+	return nil
+}
+
+func exactObjectKeys(object map[string]any, required []string) bool {
+	if len(object) != len(required) {
+		return false
+	}
+	for _, key := range required {
+		if _, ok := object[key]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func (v *validator) validateEnvironment(project, governance map[string]any) {
@@ -581,6 +920,10 @@ func (v *validator) validateEnvironment(project, governance map[string]any) {
 		v.invalid["/project/root"] = true
 		return
 	}
+	if canonical, err := filepath.EvalSymlinks(rootPath); err == nil {
+		rootPath = canonical
+	}
+	v.projectRoot = rootPath
 	if required, ok := project["git_required"].(bool); ok && required && v.valid("/project/git_required") {
 		if _, err := os.Stat(filepath.Join(rootPath, ".git")); err != nil {
 			v.add("E_GIT_REQUIRED", "/project/root", "")
@@ -806,6 +1149,12 @@ func diagnostic(code, pointer, detail string) Diagnostic {
 		message = "initialize Git at project.root or set git_required to false"
 	case "E_REVIEW_UNAVAILABLE":
 		message = "provide an independent review source for phase 2 or later"
+	case "E_TARGET_ESCAPE":
+		message = "use a target path whose existing ancestors stay inside project root"
+	case "E_TARGET_TYPE":
+		message = "replace target or parent with the required regular file or directory type"
+	case "E_TARGET_READ":
+		message = "make target readable before planning"
 	}
 	return Diagnostic{Code: code, Path: pointer, Message: message}
 }

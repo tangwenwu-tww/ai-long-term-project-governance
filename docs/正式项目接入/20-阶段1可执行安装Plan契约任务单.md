@@ -26,7 +26,7 @@ status: active
 
 ### 2. 目标路径、文件类型与 containment
 
-四个写目标和两个条件资源从全部 17 个 effective resource path 派生并统一规范化，再做碰撞检查。除 17 个基础路径不能相同外，任意最终文件路径相同、Windows ASCII 大小写折叠后相同，或一个最终文件路径是另一最终文件路径的父路径，都返回 `E_RESOURCE_COLLISION`。每组碰撞按 base resource logical ID 排序：两个都显式时保留较小 ID、诊断指向较大 ID；只有一个显式时诊断始终指向该显式 `/layout/resources/<escaped-id>`；同一 Pointer 只报一次。不得输出绝对路径。至少覆盖 `agent_entry = schema_root/instance.schema.json` 和 `instance_manifest = schema_root`。
+四个写目标和两个条件资源从全部 17 个 effective resource path 派生并统一规范化，再做碰撞检查。为保证同一 manifest 跨平台得到相同结果，所有宿主都按 Windows ASCII 大小写折叠口径检查；任意最终文件路径相同、折叠后相同，或一个最终文件路径是另一最终文件路径的父路径，都返回 `E_RESOURCE_COLLISION`。每组碰撞按 base resource logical ID 排序：两个都显式时保留较小 ID、诊断指向较大 ID；只有一个显式时诊断始终指向该显式 `/layout/resources/<escaped-id>`；同一 Pointer 只报一次。不得输出绝对路径。至少覆盖 `agent_entry = schema_root/instance.schema.json` 和 `instance_manifest = schema_root`。
 
 目标探测固定如下：
 
@@ -179,3 +179,13 @@ doc_purpose: 说明如何读取和审核最小安装 plan，以及为何 conflic
 - 2026-11-25：项目负责人回复“批准”，批准四个目标、固定模板、最小 schema、七键 operation、动作/退出码/排序/摘要语义；不授权 apply 或目标写入。
 - 2026-11-25：首次独立审查 FAIL（Critical 2 / Major 4 / Minor 1）；补齐精确字节、目标安全、派生碰撞、plan/NO_CHANGES 边界、完整 operation/golden 与 schema 负向矩阵，等待复审。
 - 2026-11-25：第二次复审 FAIL（Critical 1 / Major 4 / Minor 1）后补齐真实 conflict fixture、自定义 instance path、安全诊断和稳定 collision Pointer；第三次独立复审 PASS（Critical 0 / Major 0 / Minor 0），任务转为 active。
+- 2026-11-25：以 `6f61ffc` 提交 contract tests 并取得旧实现退出 1 的有效红灯；随后完成最小实现、跨平台 workflow 与 target/instance 负向矩阵，最终独立代码复审 PASS（Critical 0 / Major 0 / Minor 0）。
+
+## 完成证据
+
+- 红灯：`go test -count=1 ./contracttest` → 退出码 1；失败仅来自旧实现仍输出两行文本且未拒绝目录 target。
+- 绿灯：`go test -count=1 ./...`、`go vet ./...`、`go mod tidy -diff`、`go build ./cmd/aigov` → 均退出码 0。
+- 黑盒：同一 blank target 连续两次退出 0、stdout 逐字节一致、目标目录条目数保持 0。
+- golden：blank/all-NOOP/conflict、canonical schema/instance/AGENTS SHA-256 全部逐字节通过。
+- safety：Windows junction、任意 project-owned AGENTS、missing parent 实际 PASS；当前 Windows 无权限/无等价 fixture 的 symlink、special-file、mode-000 用例明确 SKIP，由三平台 workflow 继续验证可构造分支。
+- final changed_files 为 11 个，全部位于 `allowed_files`；未实现 `apply`、恢复点、rollback、doctor、upgrade、状态机、trust、签名或发布逻辑。
