@@ -12,7 +12,7 @@ status: active
 
 ## 1. 项目基本信息
 - 项目名：AI 长期开发复杂项目
-- 当前阶段：阶段 1（`T-CONTRACT-002` 与 `T-PLAN-002` 已测试先行实现、独立审查 PASS 并 fast-forward 合并 `master`；核心假设尚未端到端验证，下一步只在 `APPLY-001-R1` 人工批准后实现最小 apply，不提前进入阶段 2–3 治理）
+- 当前阶段：阶段 1（`T-CONTRACT-002` 与 `T-PLAN-002` 已合并 `master`；`APPLY-001-R1` 已获人工批准并独立复审 PASS，当前只以 contract-first 方式实现最小 apply；核心假设尚未端到端验证，不提前进入阶段 2–3 治理）
 - 技术栈：Markdown 方法论；正式工具层使用 Go `1.27.4` 构建的原生可执行文件；GitHub Releases 是 canonical 分发渠道；Python 3 标准库仅用于 PoC 和回归参考；Node SEA 仅保留为备选
 - 核心假设（一句话）：让一个全新的 AI Agent 仅通过目标项目仓库中的本地治理实例，就能识别项目阶段、遵守任务边界、提供可验证证据、接受独立审查，并在失败时自动止损；治理强度随项目成熟度动态升级。
 

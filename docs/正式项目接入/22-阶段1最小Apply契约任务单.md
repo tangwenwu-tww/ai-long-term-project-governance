@@ -2,14 +2,14 @@
 type: reference
 purpose: 在任何写入实现前冻结阶段 1 最小 apply 的批准绑定、原子提交、失败回滚与幂等边界
 audience: 项目负责人、阶段 1 Executor、独立 Reviewer 与维护 aigov plan/apply 的后续 Agent
-status: draft
+status: active
 ---
 
 # APPLY-001-R1：最小 Apply 人工定稿草案
 
 ## 用途
 
-T-PLAN-002 已能确定性输出四个目标的 `CREATE/NOOP/SKIP/CONFLICT`。本任务只增加一个显式批准、只消费当前计划的最小 `apply`，以便在 blank target 上创建计划中的文件，并在失败时恢复到调用前状态。未经项目负责人批准 `APPLY-001-R1` 且独立复审 PASS，不得把本文转为 active 或编写写入型实现。
+T-PLAN-002 已能确定性输出四个目标的 `CREATE/NOOP/SKIP/CONFLICT`。本任务只增加一个显式批准、只消费当前计划的最小 `apply`，以便在 blank target 上创建计划中的文件，并在失败时恢复到调用前状态。项目负责人已批准 `APPLY-001-R1`，草案独立复审 PASS，现按 contract-first 顺序执行。
 
 ## 建议决定
 
@@ -154,4 +154,5 @@ doc_purpose: 说明如何批准并安全执行最小 apply，以及失败时何�
 
 - 2026-11-25：T-PLAN-002 合并 master 后形成 R1 草案，等待独立审查与人工批准。
 - 2026-11-25：首次独立审查 FAIL（Critical 1 / Major 4 / Minor 0）；收紧威胁模型，并补齐内部路径碰撞、纯 CREATE 恢复点、错误闭包和平台 mode 语义，等待复审。
+- 2026-11-25：后续复审关闭 3 个 Major，最终独立审查 PASS（Critical 0 / Major 0 / Minor 0）；项目负责人明确批准 `APPLY-001-R1`，任务转为 active。
 
