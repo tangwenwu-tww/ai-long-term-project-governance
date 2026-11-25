@@ -237,4 +237,5 @@ tool/contracttest/entry_test.go
 
 - 2026-11-25：建立 R1 draft；冻结候选 `0.3-draft`、phase snapshot、shared 托管块、UPDATE/rollback 边界和红灯测试矩阵，等待项目负责人批准。
 - 2026-11-25：项目负责人批准 `ENTRY-001-R1`，并定稿 phase snapshot 仅由 `append-managed-reference` 生成；文档转为 active，允许添加契约红灯测试。
-- 2026-11-25：新增可编译的 `entry_test.go` 黑盒矩阵；旧实现以预期的版本/未知字段 signature 红灯，既有测试、vet 与 tidy 无回归。T-ENTRY-001 契约和红灯基线完成，生产实现仍未开始。
+- 2026-11-25：新增可编译的 `entry_test.go` 黑盒矩阵；旧实现以预期的版本/未知字段 signature 红灯，既有测试、vet 与 tidy 无回归。T-ENTRY-001 契约和红灯基线完成；在该基线提交时，生产实现尚未开始。
+- 2026-11-25：后续 T-ENTRY-002 已按本契约完成生产实现并提交 `0af271e`；本任务保留红灯基线历史，当前实现状态以 28 号任务单为准。

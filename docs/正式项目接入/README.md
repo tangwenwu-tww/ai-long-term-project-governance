@@ -42,9 +42,10 @@ status: active
 | [23：阶段 1 最小 Apply 合并状态同步任务单](./23-阶段1最小Apply合并状态同步任务单.md) | active | 确认 T-APPLY-001 已合并，并冻结下一任务只建立真实目标仓库 T-E2E-001 契约 |
 | [24：阶段 1 审核门禁降档任务单](./24-阶段1审核门禁降档任务单.md) | active | 查看阶段 1 取消人工/独立审核门禁、保留自动证据并在阶段 2 恢复职责分离的决定 |
 | [25：阶段 1 真实初始项目 E2E 契约任务单](./25-阶段1真实目标仓库E2E契约任务单.md) | active | r003：支持生成新入口或保留项目自有 AGENTS，只在逐字节复核的隔离副本执行并单独判定入口事实缺口 |
-| [26：阶段 1 真实目标仓库 E2E 结果同步任务单](./26-阶段1真实目标仓库E2E结果同步任务单.md) | active | 查看 a001 的 A–F 实际结果、`CORE_HYPOTHESIS_NOT_PROVEN` 判定与下一任务 T-ENTRY-001 边界 |
-| [27：阶段 1 已有 AGENTS 最小入口契约任务单](./27-阶段1已有AGENTS最小入口契约任务单.md) | active | 查看已批准的 0.3-draft、仅 append 模式生成的 phase snapshot、shared 托管引用块和已建立的红灯黑盒基线 |
-| [28：阶段 1 已有 AGENTS 入口生产实现任务单](./28-阶段1已有AGENTS入口生产实现任务单.md) | active | 实现 0.3-draft、phase snapshot、UPDATE/shared 发布与失败回滚闭包 |
+| [26：阶段 1 真实目标仓库 E2E 结果同步任务单](./26-阶段1真实目标仓库E2E结果同步任务单.md) | active | 查看 a001 的 A–F 历史结果、`CORE_HYPOTHESIS_NOT_PROVEN` 判定及入口修复后的后续边界 |
+| [27：阶段 1 已有 AGENTS 最小入口契约任务单](./27-阶段1已有AGENTS最小入口契约任务单.md) | active | 查看已批准并由 T-ENTRY-002 实现的 0.3-draft、phase snapshot 与 shared 托管引用块契约 |
+| [28：阶段 1 已有 AGENTS 入口生产实现任务单](./28-阶段1已有AGENTS入口生产实现任务单.md) | active | 查看已完成的 0.3-draft、UPDATE/shared、幂等、安全回滚及本地验证证据 |
+| [29：阶段 1 入口实现完成状态同步任务单](./29-阶段1入口实现完成状态同步任务单.md) | active | 区分 a001 历史 FAIL 与入口修复已落地事实，并冻结下一任务 T-EVIDENCE-001 |
 
 `draft` 文档是待审材料，不得作为实现依据。完成独立 Review 与人工定稿后，逐份转为 `active`；在此之前禁止根据其中的候选结构直接开发安装器。
 
@@ -208,4 +209,5 @@ Executor Agent 的固定执行顺序：
 - 2026-11-25：完成 T-E2E-001 `e2e-001-a001` 并建立 T-STATE-005；A/C/F 为 PASS，B/D 为 FAIL，E 为 `CAPABILITY_MISSING`，整体为 `CORE_HYPOTHESIS_NOT_PROVEN`，下一任务冻结为 T-ENTRY-001。
 - 2026-11-25：建立 T-ENTRY-001 R1 draft；候选契约使用显式托管选择、phase snapshot 与 shared 引用块，等待项目负责人批准后才添加红灯测试。
 - 2026-11-25：项目负责人批准 `ENTRY-001-R1`，并定稿 phase snapshot 仅由 `append-managed-reference` 生成；T-ENTRY-001 转为 active。
-- 2026-11-25：完成 T-ENTRY-001 契约与红灯测试基线；当前生产实现仍只接受 0.2-draft，后续任务才允许实现 UPDATE/shared 与回滚闭包。
+- 2026-11-25：完成 T-ENTRY-001 契约与红灯测试基线；该基线提交时的生产实现仍只接受 0.2-draft，后续 T-ENTRY-002 才允许实现 UPDATE/shared 与回滚闭包。
+- 2026-11-25：完成 T-ENTRY-002 并提交 `0af271e`；入口能力已实现但尚待新 E2E attempt 复验，D/E 仍未补齐，下一任务推进为 T-EVIDENCE-001。

@@ -68,6 +68,7 @@ doc_purpose: 让生产实现严格对应已批准入口契约，并能由测试�
 
 - 2026-11-25：从 `5a22400` 红灯基线创建实现任务，冻结验收、allowed_files 与 CREATE/UPDATE 分离边界。
 - 2026-11-25：完成 `0.3-draft`、入口模式校验、append-only 托管块、phase snapshot、`UPDATE/shared` 发布及进程内失败回滚；T-ENTRY-001 红灯与既有测试全部通过。
+- 2026-11-25：实现以提交 `0af271e` 收口于分支 `codex/t-entry-002-implementation`，提交后工作区干净；状态同步转入 T-STATE-006。
 
 ## 实现结果与验收对应
 
