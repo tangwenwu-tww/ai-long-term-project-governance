@@ -43,6 +43,7 @@ status: active
 | [24：阶段 1 审核门禁降档任务单](./24-阶段1审核门禁降档任务单.md) | active | 查看阶段 1 取消人工/独立审核门禁、保留自动证据并在阶段 2 恢复职责分离的决定 |
 | [25：阶段 1 真实初始项目 E2E 契约任务单](./25-阶段1真实目标仓库E2E契约任务单.md) | active | r003：支持生成新入口或保留项目自有 AGENTS，只在逐字节复核的隔离副本执行并单独判定入口事实缺口 |
 | [26：阶段 1 真实目标仓库 E2E 结果同步任务单](./26-阶段1真实目标仓库E2E结果同步任务单.md) | active | 查看 a001 的 A–F 实际结果、`CORE_HYPOTHESIS_NOT_PROVEN` 判定与下一任务 T-ENTRY-001 边界 |
+| [27：阶段 1 已有 AGENTS 最小入口契约任务单](./27-阶段1已有AGENTS最小入口契约任务单.md) | draft | 审批 T-ENTRY-001 的 0.3-draft、phase snapshot、shared 托管引用块和红灯黑盒测试边界 |
 
 `draft` 文档是待审材料，不得作为实现依据。完成独立 Review 与人工定稿后，逐份转为 `active`；在此之前禁止根据其中的候选结构直接开发安装器。
 
@@ -204,3 +205,4 @@ Executor Agent 的固定执行顺序：
 - 2026-11-25：将 T-E2E-001 升级为 r002；取消对初始项目 Git、frontmatter 和预存任务单的前置要求，实验改为只写隔离副本。
 - 2026-11-25：将 T-E2E-001 升级为 r003；增加 preserve-project-entry profile，已有项目入口保持逐字节不变。
 - 2026-11-25：完成 T-E2E-001 `e2e-001-a001` 并建立 T-STATE-005；A/C/F 为 PASS，B/D 为 FAIL，E 为 `CAPABILITY_MISSING`，整体为 `CORE_HYPOTHESIS_NOT_PROVEN`，下一任务冻结为 T-ENTRY-001。
+- 2026-11-25：建立 T-ENTRY-001 R1 draft；候选契约使用显式托管选择、phase snapshot 与 shared 引用块，等待项目负责人批准后才添加红灯测试。
