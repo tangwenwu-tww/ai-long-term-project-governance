@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,7 +20,7 @@ import (
 	contractv0 "example.invalid/aigov/contracts/v0"
 )
 
-const contractVersion = "0.3-draft"
+const contractVersion = "0.4-draft"
 
 var (
 	subjectPattern  = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}:[A-Za-z0-9][A-Za-z0-9._@+/-]{0,127}$`)
@@ -54,6 +55,7 @@ var defaultResources = map[string]string{
 	"policy_snapshot":     ".ai-governance/policy.json",
 	"trust_anchor":        ".ai-governance/trust.json",
 	"runtime_root":        ".ai-governance/runtime",
+	"runtime_entrypoint":  runtimeEntrypoint(),
 	"schema_root":         ".ai-governance/schemas",
 	"task_store":          "governance/tasks",
 	"evidence_store":      "governance/evidence",
@@ -86,6 +88,7 @@ type PreparedFile struct {
 	Operation       Operation
 	Content         []byte
 	PreviousContent []byte
+	Mode            os.FileMode
 }
 
 type Operation struct {
@@ -595,6 +598,11 @@ func (v *validator) validateResources(layout map[string]any) {
 			v.invalid[pointer] = true
 			continue
 		}
+		if resource == "runtime_entrypoint" && path.Base(normalized) != path.Base(runtimeEntrypoint()) {
+			v.add("E_VALUE", pointer, "")
+			v.invalid[pointer] = true
+			continue
+		}
 		effective[resource] = normalized
 		explicit[resource] = true
 	}
@@ -690,7 +698,12 @@ func (v *validator) buildPlan(methodologyVersion string) Result {
 	entryMode := entryIntegrationMode(v.root)
 	installSchema := contractv0.InstallManifestSchema()
 	instanceSchema := contractv0.InstanceSchema()
+	runtimeBytes, runtimeErr := currentExecutableBytes()
+	if runtimeErr != nil {
+		return Result{Diagnostics: []Diagnostic{diagnostic("E_RUNTIME_READ", "/runtime_entrypoint", "")}}
+	}
 	managedFiles := map[string]string{
+		"runtime_entrypoint":                       sha256Hex(runtimeBytes),
 		"schema_root/install-manifest.schema.json": sha256Hex(installSchema),
 		"schema_root/instance.schema.json":         sha256Hex(instanceSchema),
 	}
@@ -756,6 +769,7 @@ func (v *validator) buildPlan(methodologyVersion string) Result {
 	}{
 		{"agent_entry", v.resources["agent_entry"], "project", agentBytes},
 		{"instance_manifest", v.resources["instance_manifest"], "tool", instanceBytes},
+		{"runtime_entrypoint", v.resources["runtime_entrypoint"], "tool", runtimeBytes},
 		{"schema_root/install-manifest.schema.json", path.Join(v.resources["schema_root"], "install-manifest.schema.json"), "tool", installSchema},
 		{"schema_root/instance.schema.json", path.Join(v.resources["schema_root"], "instance.schema.json"), "tool", instanceSchema},
 	}
@@ -855,7 +869,10 @@ func (v *validator) buildPlan(methodologyVersion string) Result {
 	prepared := make([]PreparedFile, 0, len(operations))
 	for _, operation := range operations {
 		if operation.Action == "CREATE" || operation.Action == "UPDATE" {
-			file := PreparedFile{Operation: operation, Content: contentByID[operation.LogicalID]}
+			file := PreparedFile{Operation: operation, Content: contentByID[operation.LogicalID], Mode: 0o644}
+			if operation.LogicalID == "runtime_entrypoint" {
+				file.Mode = 0o755
+			}
 			if operation.Action == "UPDATE" {
 				_, previous, _ := v.readTarget(operation.LogicalID, operation.Path)
 				file.PreviousContent = previous
@@ -1098,7 +1115,7 @@ func validateInstanceBytes(raw []byte, expectedResources map[string]string, meth
 		seen[collisionKey] = true
 	}
 	managed, ok := root["managed_files"].(map[string]any)
-	wantManaged := []string{"schema_root/install-manifest.schema.json", "schema_root/instance.schema.json"}
+	wantManaged := []string{"runtime_entrypoint", "schema_root/install-manifest.schema.json", "schema_root/instance.schema.json"}
 	if ok {
 		if _, present := managed["phase_snapshot"]; present {
 			wantManaged = append(wantManaged, "phase_snapshot")
@@ -1391,8 +1408,29 @@ func diagnostic(code, pointer, detail string) Diagnostic {
 		message = "replace target or parent with the required regular file or directory type"
 	case "E_TARGET_READ":
 		message = "make target readable before planning"
+	case "E_RUNTIME_READ":
+		message = "run aigov from a readable regular native executable"
 	}
 	return Diagnostic{Code: code, Path: pointer, Message: message}
+}
+
+func runtimeEntrypoint() string {
+	if runtime.GOOS == "windows" {
+		return ".ai-governance/runtime/aigov.exe"
+	}
+	return ".ai-governance/runtime/aigov"
+}
+
+func currentExecutableBytes() ([]byte, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(executable)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("runtime is not a regular file")
+	}
+	return os.ReadFile(executable)
 }
 
 func safeRelativePath(value string) (string, bool) {

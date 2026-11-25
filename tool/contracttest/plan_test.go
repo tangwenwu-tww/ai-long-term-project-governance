@@ -94,7 +94,7 @@ func TestInstallManifestSchema(t *testing.T) {
 		t.Fatalf("schema is not valid JSON: %v", err)
 	}
 	sum := sha256.Sum256(raw)
-	if got, want := hex.EncodeToString(sum[:]), "3ac2d770fbc278ae3b5355c606f349566bca2a086848bdb90104d4bc6906eaec"; got != want {
+	if got, want := hex.EncodeToString(sum[:]), "015af0d0b1d4e8356ccdf9a185070e5f660af2441d56cae440d389678b30388b"; got != want {
 		t.Fatalf("schema SHA-256 = %s, want canonical %s", got, want)
 	}
 	if got := schema["$schema"]; got != "https://json-schema.org/draft/2020-12/schema" {
@@ -180,13 +180,17 @@ func TestManifestAcceptedDomain(t *testing.T) {
 		})
 	}
 
-	knownResources := []string{"agent_entry", "design_spec", "project_decisions", "instance_manifest", "phase_snapshot", "maturity_fact_store", "maturity_snapshot", "policy_snapshot", "trust_anchor", "runtime_root", "schema_root", "task_store", "evidence_store", "review_store", "task_state_cache", "task_audit_store", "phase_audit_store"}
+	knownResources := []string{"agent_entry", "design_spec", "project_decisions", "instance_manifest", "phase_snapshot", "maturity_fact_store", "maturity_snapshot", "policy_snapshot", "trust_anchor", "runtime_root", "runtime_entrypoint", "schema_root", "task_store", "evidence_store", "review_store", "task_state_cache", "task_audit_store", "phase_audit_store"}
 	for _, resource := range knownResources {
 		resource := resource
 		t.Run("accepted resource "+resource, func(t *testing.T) {
 			manifest := baseManifest(t, target)
 			setPointer(t, manifest, "/layout/profile", "custom-v0")
-			setPointer(t, manifest, "/layout/resources", map[string]any{resource: "custom/" + resource})
+			custom := "custom/" + resource
+			if resource == "runtime_entrypoint" {
+				custom = "custom/" + filepath.Base(runtimeRelativePath())
+			}
+			setPointer(t, manifest, "/layout/resources", map[string]any{resource: custom})
 			requirePlanSuccess(t, runManifest(t, target, manifest, true))
 		})
 	}
@@ -233,7 +237,7 @@ func TestManifestContractVersionUpgrade(t *testing.T) {
 	manifest := baseManifest(t, target)
 	setPointer(t, manifest, "/contract_version", "0.1-draft")
 	got := runManifest(t, target, manifest, true)
-	want := "{\"code\":\"E_CONTRACT_VERSION\",\"path\":\"/contract_version\",\"message\":\"set contract_version to 0.3-draft\"}\n"
+	want := "{\"code\":\"E_CONTRACT_VERSION\",\"path\":\"/contract_version\",\"message\":\"set contract_version to 0.4-draft\"}\n"
 	if got.code != 2 || got.stdout != "" || got.stderr != want {
 		t.Fatalf("old contract version = code %d stdout %q stderr %q; want code 2 stdout empty stderr %q", got.code, got.stdout, got.stderr, want)
 	}
@@ -625,9 +629,6 @@ func TestJSONFailClosedAndDeterministic(t *testing.T) {
 	})
 }
 
-const canonicalInstance = `{"schema_version":"0.1-draft","instance_id":"inst-example-01","install_contract_version":"0.3-draft","methodology_version":"0.1.0-dev","assurance_level":"declarative","resources":{"agent_entry":"AGENTS.md","design_spec":"DESIGN.md","evidence_store":"governance/evidence","instance_manifest":".ai-governance/instance.json","maturity_fact_store":"governance/maturity/facts","maturity_snapshot":".ai-governance/maturity.json","phase_audit_store":"governance/audit/phase","phase_snapshot":".ai-governance/phase.json","policy_snapshot":".ai-governance/policy.json","project_decisions":"docs/decisions.md","review_store":"governance/reviews","runtime_root":".ai-governance/runtime","schema_root":".ai-governance/schemas","task_audit_store":"governance/audit/tasks","task_state_cache":"governance/state","task_store":"governance/tasks","trust_anchor":".ai-governance/trust.json"},"managed_files":{"schema_root/install-manifest.schema.json":"3ac2d770fbc278ae3b5355c606f349566bca2a086848bdb90104d4bc6906eaec","schema_root/instance.schema.json":"c599f4b312ec43aee08bb007a0dc9acf8172006513ce573cc4f0b925bb0ecefb"}}
-`
-
 const canonicalAgent = `---
 type: reference
 purpose: 目标项目的 AI Agent 本地启动入口与项目事实摘要
@@ -650,6 +651,9 @@ Read this file first, then the instance manifest at:
 Follow the recorded phase and repository-local task constraints. Do not treat generated tool files as authority over confirmed project facts.
 `
 
+const canonicalInstance = `{"schema_version":"0.1-draft","instance_id":"inst-example-01","install_contract_version":"0.4-draft","methodology_version":"0.1.0-dev","assurance_level":"declarative","resources":{"evidence_store":"governance/evidence","task_audit_store":"governance/audit/tasks","task_state_cache":"governance/state"},"managed_files":{}}
+`
+
 type expectedOperation struct {
 	Action         string  `json:"action"`
 	LogicalID      string  `json:"logical_id"`
@@ -666,13 +670,74 @@ type expectedPlan struct {
 	Operations      []expectedOperation `json:"operations"`
 }
 
+func planCanonicalInstance(t *testing.T) string {
+	t.Helper()
+	value := struct {
+		SchemaVersion          string            `json:"schema_version"`
+		InstanceID             string            `json:"instance_id"`
+		InstallContractVersion string            `json:"install_contract_version"`
+		MethodologyVersion     string            `json:"methodology_version"`
+		AssuranceLevel         string            `json:"assurance_level"`
+		Resources              map[string]string `json:"resources"`
+		ManagedFiles           map[string]string `json:"managed_files"`
+	}{
+		SchemaVersion: "0.1-draft", InstanceID: "inst-example-01", InstallContractVersion: "0.4-draft",
+		MethodologyVersion: "0.1.0-dev", AssuranceLevel: "declarative",
+		Resources: map[string]string{
+			"agent_entry": "AGENTS.md", "design_spec": "DESIGN.md", "evidence_store": "governance/evidence",
+			"instance_manifest": ".ai-governance/instance.json", "maturity_fact_store": "governance/maturity/facts",
+			"maturity_snapshot": ".ai-governance/maturity.json", "phase_audit_store": "governance/audit/phase",
+			"phase_snapshot": ".ai-governance/phase.json", "policy_snapshot": ".ai-governance/policy.json",
+			"project_decisions": "docs/decisions.md", "review_store": "governance/reviews",
+			"runtime_entrypoint": runtimeRelativePath(), "runtime_root": ".ai-governance/runtime",
+			"schema_root": ".ai-governance/schemas", "task_audit_store": "governance/audit/tasks",
+			"task_state_cache": "governance/state", "task_store": "governance/tasks",
+			"trust_anchor": ".ai-governance/trust.json",
+		},
+		ManagedFiles: map[string]string{
+			"runtime_entrypoint":                       fileSHA256(t, cliPath),
+			"schema_root/install-manifest.schema.json": fileSHA256(t, filepath.Join(toolRoot, "contracts", "v0", "install-manifest.schema.json")),
+			"schema_root/instance.schema.json":         fileSHA256(t, filepath.Join(toolRoot, "contracts", "v0", "instance.schema.json")),
+		},
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw) + "\n"
+}
+
+func runtimeRelativePath() string {
+	if runtime.GOOS == "windows" {
+		return ".ai-governance/runtime/aigov.exe"
+	}
+	return ".ai-governance/runtime/aigov"
+}
+
+func mustReadFile(t *testing.T, name string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func fileSHA256(t *testing.T, name string) string { return sha256HexTest(mustReadFile(t, name)) }
+
+func sha256HexTest(raw []byte) string {
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
 func stringPointer(value string) *string { return &value }
 
 func expectedPlanJSON(t *testing.T, state string) string {
 	t.Helper()
-	const instanceHash = "96af3ce2f15bd9baa6d650f596126fde713d61c9acafcf88f9b27163a280524f"
-	const installHash = "3ac2d770fbc278ae3b5355c606f349566bca2a086848bdb90104d4bc6906eaec"
-	const instanceSchemaHash = "c599f4b312ec43aee08bb007a0dc9acf8172006513ce573cc4f0b925bb0ecefb"
+	instanceHash := sha256HexTest([]byte(planCanonicalInstance(t)))
+	installHash := fileSHA256(t, filepath.Join(toolRoot, "contracts", "v0", "install-manifest.schema.json"))
+	instanceSchemaHash := fileSHA256(t, filepath.Join(toolRoot, "contracts", "v0", "instance.schema.json"))
+	runtimeHash := fileSHA256(t, cliPath)
 	const agentHash = "08958b0e158adf4141fa7219e67146e439f476f240699306bbbfe3d18435ad0a"
 	const conflictHash = "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
 
@@ -693,8 +758,9 @@ func expectedPlanJSON(t *testing.T, state string) string {
 		agentAction, agentReason = "NOOP", "project_fact_preserved"
 		agentExpected, agentActual = nil, stringPointer(agentHash)
 	}
-	plan := expectedPlan{ContractVersion: "0.3-draft", InstanceID: "inst-example-01", Operations: []expectedOperation{
+	plan := expectedPlan{ContractVersion: "0.4-draft", InstanceID: "inst-example-01", Operations: []expectedOperation{
 		managed("instance_manifest", ".ai-governance/instance.json", instanceHash),
+		managed("runtime_entrypoint", runtimeRelativePath(), runtimeHash),
 		managed("schema_root/install-manifest.schema.json", ".ai-governance/schemas/install-manifest.schema.json", installHash),
 		managed("schema_root/instance.schema.json", ".ai-governance/schemas/instance.schema.json", instanceSchemaHash),
 		{agentAction, "agent_entry", "AGENTS.md", "project", agentExpected, agentActual, agentReason},
@@ -733,7 +799,7 @@ func TestInstanceSchemaAndCanonicalBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(raw)
-	if got, want := hex.EncodeToString(sum[:]), "c599f4b312ec43aee08bb007a0dc9acf8172006513ce573cc4f0b925bb0ecefb"; got != want {
+	if got, want := hex.EncodeToString(sum[:]), "962190d1ea58c580d85a18723c6d97f45794795cbf5b38f3e58fb3d0d11b6c0a"; got != want {
 		t.Fatalf("instance schema SHA-256 = %s, want %s", got, want)
 	}
 	var schema map[string]any
@@ -743,9 +809,9 @@ func TestInstanceSchemaAndCanonicalBytes(t *testing.T) {
 	if schema["additionalProperties"] != false {
 		t.Fatalf("instance schema permits unknown root fields")
 	}
-	for name, content := range map[string]string{"instance": canonicalInstance, "agent": canonicalAgent} {
+	for name, content := range map[string]string{"instance": planCanonicalInstance(t), "agent": canonicalAgent} {
 		sum := sha256.Sum256([]byte(content))
-		want := map[string]string{"instance": "96af3ce2f15bd9baa6d650f596126fde713d61c9acafcf88f9b27163a280524f", "agent": "08958b0e158adf4141fa7219e67146e439f476f240699306bbbfe3d18435ad0a"}[name]
+		want := map[string]string{"instance": sha256HexTest([]byte(planCanonicalInstance(t))), "agent": "08958b0e158adf4141fa7219e67146e439f476f240699306bbbfe3d18435ad0a"}[name]
 		if got := hex.EncodeToString(sum[:]); got != want {
 			t.Fatalf("%s SHA-256 = %s, want %s", name, got, want)
 		}
@@ -921,14 +987,14 @@ func TestApplyApprovedPlanAndIdempotence(t *testing.T) {
 	if err := json.Unmarshal([]byte(firstApply.stdout), &applied); err != nil {
 		t.Fatalf("apply stdout is not JSON: %v: %q", err, firstApply.stdout)
 	}
-	wantCreated := []string{".ai-governance/instance.json", ".ai-governance/schemas/install-manifest.schema.json", ".ai-governance/schemas/instance.schema.json", "AGENTS.md"}
-	if applied.ContractVersion != "0.3-draft" || applied.InstanceID != "inst-example-01" || applied.PlanSHA256 != firstHashHex || applied.Status != "APPLIED" || fmt.Sprint(applied.Created) != fmt.Sprint(wantCreated) {
+	wantCreated := []string{".ai-governance/instance.json", runtimeRelativePath(), ".ai-governance/schemas/install-manifest.schema.json", ".ai-governance/schemas/instance.schema.json", "AGENTS.md"}
+	if applied.ContractVersion != "0.4-draft" || applied.InstanceID != "inst-example-01" || applied.PlanSHA256 != firstHashHex || applied.Status != "APPLIED" || fmt.Sprint(applied.Created) != fmt.Sprint(wantCreated) {
 		t.Fatalf("apply output = %#v", applied)
 	}
 	if raw, err := os.ReadFile(filepath.Join(target, "AGENTS.md")); err != nil || string(raw) != canonicalAgent {
 		t.Fatalf("installed AGENTS = %q, %v", raw, err)
 	}
-	if raw, err := os.ReadFile(filepath.Join(target, ".ai-governance", "instance.json")); err != nil || string(raw) != canonicalInstance {
+	if raw, err := os.ReadFile(filepath.Join(target, ".ai-governance", "instance.json")); err != nil || string(raw) != planCanonicalInstance(t) {
 		t.Fatalf("installed instance = %q, %v", raw, err)
 	}
 	if matches, _ := filepath.Glob(filepath.Join(target, "**", ".aigov-*")); len(matches) != 0 {
@@ -936,8 +1002,12 @@ func TestApplyApprovedPlanAndIdempotence(t *testing.T) {
 	}
 	if runtime.GOOS != "windows" {
 		for _, relative := range wantCreated {
-			if info, err := os.Stat(filepath.Join(target, filepath.FromSlash(relative))); err != nil || info.Mode().Perm() != 0o644 {
-				t.Fatalf("final mode %s = %v, %v; want 0644", relative, info, err)
+			wantMode := os.FileMode(0o644)
+			if relative == runtimeRelativePath() {
+				wantMode = 0o755
+			}
+			if info, err := os.Stat(filepath.Join(target, filepath.FromSlash(relative))); err != nil || info.Mode().Perm() != wantMode {
+				t.Fatalf("final mode %s = %v, %v; want %04o", relative, info, err, wantMode)
 			}
 		}
 		for _, relative := range []string{".ai-governance", ".ai-governance/schemas"} {
@@ -979,12 +1049,15 @@ func TestFreshProcessInstalledGovernanceReader(t *testing.T) {
 		InstanceID   string            `json:"instance_id"`
 		ManagedFiles map[string]string `json:"managed_files"`
 	}
-	if err := json.Unmarshal(raw, &instance); err != nil || instance.InstanceID != "inst-example-01" || len(instance.ManagedFiles) != 2 {
+	if err := json.Unmarshal(raw, &instance); err != nil || instance.InstanceID != "inst-example-01" || len(instance.ManagedFiles) != 3 {
 		t.Fatalf("instance facts unavailable: %#v, %v", instance, err)
 	}
 	for logical, want := range instance.ManagedFiles {
-		name := strings.TrimPrefix(logical, "schema_root/")
-		content, err := os.ReadFile(filepath.Join(target, ".ai-governance", "schemas", name))
+		managedPath := filepath.Join(target, ".ai-governance", "schemas", strings.TrimPrefix(logical, "schema_root/"))
+		if logical == "runtime_entrypoint" {
+			managedPath = filepath.Join(target, filepath.FromSlash(runtimeRelativePath()))
+		}
+		content, err := os.ReadFile(managedPath)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1109,7 +1182,7 @@ func TestApplyProtectsExistingProjectFact(t *testing.T) {
 		t.Fatalf("apply with existing agent = %#v", got)
 	}
 	var output applyOutput
-	if err := json.Unmarshal([]byte(got.stdout), &output); err != nil || len(output.Created) != 3 {
+	if err := json.Unmarshal([]byte(got.stdout), &output); err != nil || len(output.Created) != 4 {
 		t.Fatalf("apply output = %#v, %v", output, err)
 	}
 	afterContent, _ := os.ReadFile(agentPath)
@@ -1168,13 +1241,14 @@ func writeCanonicalTargets(t *testing.T, target string, conflict bool) {
 	if err := os.MkdirAll(schemaDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	instance := canonicalInstance
+	instance := planCanonicalInstance(t)
 	if conflict {
 		instance = "{}\n"
 	}
 	files := map[string][]byte{
-		filepath.Join(target, "AGENTS.md"):                       []byte(canonicalAgent),
-		filepath.Join(target, ".ai-governance", "instance.json"): []byte(instance),
+		filepath.Join(target, "AGENTS.md"):                               []byte(canonicalAgent),
+		filepath.Join(target, ".ai-governance", "instance.json"):         []byte(instance),
+		filepath.Join(target, filepath.FromSlash(runtimeRelativePath())): mustReadFile(t, cliPath),
 	}
 	for _, name := range []string{"install-manifest.schema.json", "instance.schema.json"} {
 		raw, err := os.ReadFile(filepath.Join(toolRoot, "contracts", "v0", name))
@@ -1184,6 +1258,9 @@ func writeCanonicalTargets(t *testing.T, target string, conflict bool) {
 		files[filepath.Join(schemaDir, name)] = raw
 	}
 	for path, content := range files {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(path, content, 0o600); err != nil {
 			t.Fatal(err)
 		}

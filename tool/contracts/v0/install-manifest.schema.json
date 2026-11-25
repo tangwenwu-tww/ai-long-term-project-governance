@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["contract_version", "instance_id", "project", "governance", "integration", "layout"],
   "properties": {
-    "contract_version": { "const": "0.3-draft" },
+    "contract_version": { "const": "0.4-draft" },
     "instance_id": {
       "type": "string",
       "minLength": 8,
@@ -113,6 +113,7 @@
             "policy_snapshot": { "type": "string" },
             "trust_anchor": { "type": "string" },
             "runtime_root": { "type": "string" },
+            "runtime_entrypoint": { "type": "string" },
             "schema_root": { "type": "string" },
             "task_store": { "type": "string" },
             "evidence_store": { "type": "string" },

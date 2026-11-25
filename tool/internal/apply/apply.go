@@ -120,7 +120,10 @@ func Execute(manifestPath, workingDir string, now time.Time, version, approved s
 		if code := ensureDirectory(second.ProjectRoot, filepath.Dir(finalPath), txn); code != "" {
 			return failWithRollback(code, txn)
 		}
-		mode := os.FileMode(0o644)
+		mode := file.Mode
+		if mode == 0 {
+			mode = 0o644
+		}
 		if file.Operation.Action == "UPDATE" {
 			info, err := os.Lstat(finalPath)
 			if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || digestFile(finalPath) != value(file.Operation.ActualSHA256) {
@@ -714,7 +717,7 @@ func success(result plan.Result, approved, status string, created []string) Resu
 		created = []string{}
 	}
 	return Result{Output: &Output{
-		ContractVersion: "0.3-draft", InstanceID: result.InstanceID, PlanSHA256: approved,
+		ContractVersion: "0.4-draft", InstanceID: result.InstanceID, PlanSHA256: approved,
 		Status: status, Created: created,
 	}}
 }

@@ -1,6 +1,6 @@
 ---
 type: how-to
-purpose: 说明正式 Go CLI 如何构建、测试并运行 plan、apply 与机器可复核 evidence 实验命令
+purpose: 说明正式 Go CLI 如何构建、测试并运行 plan、apply、机器可复核 evidence 与自动止损命令
 audience: 构建、验证或继续开发 aigov CLI 的 Agent 与维护者
 status: active
 ---
@@ -9,11 +9,11 @@ status: active
 
 ## 用途
 
-用本目录构建和验证 Go canonical source，并运行阶段 1 的实验性 `plan`、`apply` 与 `evidence begin/collect`。evidence 用无 Git 内容基线和直接 argv 命令捕获生成可重算 manifest，不依赖 Agent 手工转录。
+用本目录构建和验证 Go canonical source，并运行阶段 1 的实验性 `plan`、`apply`、`evidence begin/collect` 与安装后本地 `record-attempt`/`halt-status`。
 
 ## 不适用
 
-当前切片只提供实验性、显式开启的最小 `apply` 与 hash-only evidence；不提供 crash auto-recovery、rollback 命令、`doctor`、`upgrade`、stdout/stderr blob/redaction、自动止损、状态机或可信发布能力。
+当前切片只提供实验性、显式开启的最小 `apply`、hash-only evidence 与阶段 1 同签名三次止损；不提供 crash auto-recovery、rollback、`doctor`、`upgrade`、unhalt、阶段 4 总失败上限、完整状态机或可信发布能力。
 
 ## 怎么用
 
@@ -34,7 +34,7 @@ go build -o ../out/aigov.exe ./cmd/aigov
 
 启用并运行有效 manifest：
 
-当前安装 manifest 必须使用精确的 `contract_version: 0.3-draft`，并由项目负责人或受控编排器提供符合契约的显式 `instance_id`；CLI 不会生成或猜测实例身份。`layout.agent_entry_integration` 也是必填对象：新项目或仅保留已有入口时使用 `preserve-or-generate` + `approved_sha256: null`；只有明确批准已有 `AGENTS.md` 原始字节时才使用 `append-managed-reference` + 对应 SHA-256。
+当前安装 manifest 必须使用精确的 `contract_version: 0.4-draft`，并由项目负责人或受控编排器提供符合契约的显式 `instance_id`；CLI 不会生成或猜测实例身份。apply 会把当前平台正在运行的原生 `aigov` 复制为 `runtime_entrypoint` 并记录摘要。
 
 ```powershell
 $env:AIGOV_ENABLE_EXPERIMENTAL_PLAN = '1'
@@ -45,7 +45,7 @@ if ($LASTEXITCODE -ne 0) { throw "valid plan exit code was $LASTEXITCODE" }
 预期 stdout 是单行 JSON envelope，包含基础安装目标和条件资源；空目标仓库中的 action 为 `CREATE`/`SKIP`：
 
 ```json
-{"contract_version":"0.3-draft","instance_id":"inst-example-01","operations":[...]}
+{"contract_version":"0.4-draft","instance_id":"inst-example-01","operations":[...]}
 ```
 
 每项 operation 固定给出 `action`、`logical_id`、项目相对 `path`、`ownership`、expected/actual SHA-256 和 `reason`。`preserve-or-generate` 下已有 project-owned `AGENTS.md` 仍为 `NOOP project_fact_preserved`，且不会创建 phase snapshot。`append-managed-reference` 下获批入口输出 `UPDATE/shared`，原字节保持为精确前缀，同时生成 `.ai-governance/phase.json`；摘要漂移或托管块冲突时 fail-closed。tool-owned 文件不一致时输出 `CONFLICT` 并返回 2。
@@ -103,6 +103,17 @@ $beginSHA256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $receiptPath).Hash.T
 
 `begin` 创建不可复用的 attempt request/baseline；`collect` 先重算该绑定，再运行全部命令。成功验收返回 0；命令退出码不符、验收项未通过或越界时仍封存 `FAIL` manifest，并返回 1；契约、篡改或安全错误返回 2。manifest 只保留 stdout/stderr 的 raw-byte SHA-256、字节数、UTF-8 与行数摘要，不保留原始输出。
 
+### 记录 attempt 并查询止损状态
+
+安装后的 `.ai-governance/runtime/aigov.exe`（Unix 为 `aigov`）可在目标项目离线运行：
+
+```powershell
+./.ai-governance/runtime/aigov.exe record-attempt --project . --task-id T-EXAMPLE-001 --attempt-id a001 --exit-code 1 --signature-sha256 <64位小写SHA-256>
+./.ai-governance/runtime/aigov.exe halt-status --project . --task-id T-EXAMPLE-001
+```
+
+成功 attempt 不传 signature，并清零连续失败计数；失败必须传 signature。同一 signature 连续第三次失败会先封存记录，再返回 3 和 `HALTED_FOR_HUMAN`；第四次返回 3/`E_TASK_HALTED` 且不写文件。attempt ID 从 `a001` 严格连续，ledger 是权威源，state cache 可删除并从 ledger 重建；不存在 Agent 可调用的解除停止命令。
+
 ## 源码边界
 
 - `experiments/delivery-runtime/go/` 只证明 Go 运行时、哈希和签名能力，不复制其中的 JCS/Ed25519 探针。
@@ -128,3 +139,4 @@ $beginSHA256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $receiptPath).Hash.T
 - 2026-11-25：增加绑定完整 plan 摘要的最小 apply、exclusive lock、sibling temp、hard-link no-replace、幂等与进程内失败回滚。
 - 2026-11-25：实现安装契约 `0.3-draft`；增加已有 `AGENTS.md` 的获批 append-only shared UPDATE、仅 append 模式生成的 phase snapshot、同目录 backup 与安全回滚。
 - 2026-11-25：实现 evidence `0.1-draft` begin/collect；增加无 Git 内容基线、直接 argv 命令摘要、内容变更清单、验收映射与不可覆盖 manifest。
+- 2026-11-25：实现安装契约 `0.4-draft`；安装平台 runtime，并增加不可变 attempt ledger、只读 halt-status、第三次停止与第四次零写入拒绝。

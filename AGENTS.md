@@ -12,7 +12,7 @@ status: active
 
 ## 1. 项目基本信息
 - 项目名：AI 长期开发复杂项目
-- 当前阶段：阶段 1（`e2e-001-a001` 的历史判定仍为 A/C/F PASS、B `FAIL (LOCAL_ENTRY_FACT_GAP)`、D `FAIL (NOT_VERIFIABLE)`、E `CAPABILITY_MISSING`，整体 `CORE_HYPOTHESIS_NOT_PROVEN`；B/D 的修复能力已落地但均尚待新 E2E attempt 复验；已批准的 `T-HALT-001 R1` 契约、治理实例规范与红灯黑盒基线已建立，当前稳定失败于生产实现仍只接受 `0.3-draft`；E 仍为 `CAPABILITY_MISSING`，不运行 a002，不进入阶段 2；下一任务为 `T-HALT-002` 生产实现契约）
+- 当前阶段：阶段 1（`e2e-001-a001` 的历史判定仍为 A/C/F PASS、B `FAIL (LOCAL_ENTRY_FACT_GAP)`、D `FAIL (NOT_VERIFIABLE)`、E `CAPABILITY_MISSING`，整体 `CORE_HYPOTHESIS_NOT_PROVEN`；B/D/E 的修复能力现已在本地生产实现中落地，但均尚待三平台 CI 与新的隔离 E2E attempt 复验，不能改写 a001 历史结论；不进入阶段 2；下一步先建立并执行三平台 CI 验证任务，再创建全新隔离副本运行 a002）
 - 技术栈：Markdown 方法论；正式工具层使用 Go `1.27.4` 构建的原生可执行文件；GitHub Releases 是 canonical 分发渠道；Python 3 标准库仅用于 PoC 和回归参考；Node SEA 仅保留为备选
 - 核心假设（一句话）：让一个全新的 AI Agent 仅通过目标项目仓库中的本地治理实例，就能识别项目阶段、遵守任务边界、提供可验证证据、接受独立审查，并在失败时自动止损；治理强度随项目成熟度动态升级。
 

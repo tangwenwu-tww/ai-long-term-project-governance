@@ -175,3 +175,21 @@ apply 必须在 exclusive lock 内重算并重新核对 preimage。UPDATE 使用
 
 本决定不补 evidence gate、runtime、自动三次止损、doctor、review gate，也不证明强杀/掉电恢复或跨平台 CI 已通过。若后续证据证明托管块无法与主流 Agent 入口规则共存、目标平台无法可靠实现同目录 backup/rename，或 phase 事实迁移到另一已批准本地入口，可通过新 ADR 和契约版本升级替换；不得静默扩大托管块或覆盖项目事实。
 
+## DEC-2026-11-25-007：安装本地 runtime 并以不可变 attempt ledger 自动止损
+
+- 状态：已接受
+- 决策日期：2026-11-25
+- 决策人：项目负责人
+- 批准 ID：`HALT-001-R1`
+- 决策范围：安装 manifest `0.4-draft`、目标项目本地 runtime、阶段 1 failure-attempt 事实与同签名三次停止
+
+### 决定
+
+安装 manifest 升级为精确 `0.4-draft`。plan/apply 把当前平台正在运行的原生 `aigov` 字节作为 tool-owned `runtime_entrypoint` 安装到目标项目，并把 SHA-256 写入 instance manifest；不下载或猜测其他平台产物。
+
+安装后的 runtime 提供 `record-attempt` 与只读 `halt-status`。每个 task 的 `aNNN` attempt 按严格连续顺序写入不可覆盖、带自身内容摘要的 canonical ledger；state cache 只由已验证 ledger 重建。成功清零连续计数，不同失败签名从 1 重计，同一签名第三次失败持久化后进入 `HALTED_FOR_HUMAN` 并返回 3，第四次及以后返回 `E_TASK_HALTED` 且零写入。
+
+### 范围限制与推翻条件
+
+本决定不提供 Agent 可调用的 unhalt/reset，不实现阶段 4 不同签名总失败上限或完整任务状态机，也不证明三平台 CI 或 E2E 已通过。若跨平台文件系统证据证明当前 runtime 发布或 ledger no-replace 无法满足原子性，或后续可信批准协议需要替换人工恢复边界，必须通过新契约、迁移计划与项目负责人批准调整；不得静默删除既有 attempt 事实。
+

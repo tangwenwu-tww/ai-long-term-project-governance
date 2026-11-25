@@ -70,9 +70,10 @@ func TestValidateInstanceBytesNegativeMatrix(t *testing.T) {
 		resources[key] = value
 	}
 	base := instanceManifest{
-		SchemaVersion: "0.1-draft", InstanceID: "inst-example-01", InstallContractVersion: "0.3-draft",
+		SchemaVersion: "0.1-draft", InstanceID: "inst-example-01", InstallContractVersion: "0.4-draft",
 		MethodologyVersion: "0.1.0-dev", AssuranceLevel: "declarative", Resources: resources,
 		ManagedFiles: map[string]string{
+			"runtime_entrypoint":                       strings.Repeat("c", 64),
 			"schema_root/install-manifest.schema.json": strings.Repeat("a", 64),
 			"schema_root/instance.schema.json":         strings.Repeat("b", 64),
 		},
@@ -115,7 +116,7 @@ func TestValidateInstanceBytesNegativeMatrix(t *testing.T) {
 		key := key
 		mutations = append(mutations, mutation{"missing resource " + key, func(v map[string]any) { delete(v["resources"].(map[string]any), key) }})
 	}
-	for _, key := range []string{"schema_root/install-manifest.schema.json", "schema_root/instance.schema.json"} {
+	for _, key := range []string{"runtime_entrypoint", "schema_root/install-manifest.schema.json", "schema_root/instance.schema.json"} {
 		key := key
 		mutations = append(mutations, mutation{"missing managed " + key, func(v map[string]any) { delete(v["managed_files"].(map[string]any), key) }})
 	}

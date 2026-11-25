@@ -427,7 +427,7 @@ func writeManifest(t *testing.T, target string, resources map[string]any) string
 		resources = map[string]any{}
 	}
 	manifest := map[string]any{
-		"contract_version": "0.3-draft", "instance_id": "inst-example-01",
+		"contract_version": "0.4-draft", "instance_id": "inst-example-01",
 		"project": map[string]any{"name": "example-service", "root": target, "technology": []any{"Go"}, "has_frontend": false, "git_required": false},
 		"governance": map[string]any{
 			"phase": 0, "phase_basis": map[string]any{"assessed_at": "2026-11-25T12:00:00Z", "assessed_by": "human:project-owner", "signals": []any{"product_idea_exists"}},
@@ -467,7 +467,7 @@ func writeAppendManifest(t *testing.T, target string) (string, []byte, os.FileIn
 		t.Fatal(err)
 	}
 	manifest := map[string]any{
-		"contract_version": "0.3-draft", "instance_id": "inst-example-01",
+		"contract_version": "0.4-draft", "instance_id": "inst-example-01",
 		"project": map[string]any{"name": "example-service", "root": target, "technology": []any{"Go"}, "has_frontend": false, "git_required": false},
 		"governance": map[string]any{
 			"phase": 0, "phase_basis": map[string]any{"assessed_at": "2026-11-25T12:00:00Z", "assessed_by": "human:project-owner", "signals": []any{"product_idea_exists"}},

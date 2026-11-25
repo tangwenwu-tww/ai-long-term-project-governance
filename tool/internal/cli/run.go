@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"time"
 
 	applycmd "example.invalid/aigov/internal/apply"
 	"example.invalid/aigov/internal/evidence"
+	"example.invalid/aigov/internal/halt"
 	"example.invalid/aigov/internal/plan"
 )
 
@@ -23,6 +25,8 @@ Usage:
   aigov apply --manifest <path> --plan-sha256 <sha256>
   aigov evidence begin --project <root> --request <request.json>
   aigov evidence collect --project <root> --request <request.json> --begin-sha256 <sha256>
+  aigov record-attempt --project <root> --task-id <id> --attempt-id <aNNN> --exit-code <integer> [--signature-sha256 <sha256>]
+  aigov halt-status --project <root> --task-id <id>
 
 Commands:
   help     Show this help
@@ -53,10 +57,79 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if args[0] == "evidence" {
 		return runEvidence(args[1:], stdout, stderr)
 	}
+	if args[0] == "record-attempt" {
+		return runRecordAttempt(args[1:], stdout, stderr)
+	}
+	if args[0] == "halt-status" {
+		return runHaltStatus(args[1:], stdout, stderr)
+	}
 
 	fmt.Fprintf(stderr, "unknown command: %s\n", args[0])
 	fmt.Fprintln(stderr, "Run 'aigov help' for usage.")
 	return 2
+}
+
+func runRecordAttempt(args []string, stdout, stderr io.Writer) int {
+	values, diagnostic := haltArguments(args, true)
+	if diagnostic != nil {
+		_ = halt.WriteCanonical(stderr, diagnostic)
+		return 2
+	}
+	exitCode, err := strconv.Atoi(values["--exit-code"])
+	if err != nil {
+		_ = halt.WriteCanonical(stderr, halt.Diagnostic{Code: "E_HALT_REQUEST", Message: "exit code must be an integer", Path: "/exit_code"})
+		return 2
+	}
+	result := halt.RecordAttempt(values["--project"], values["--task-id"], values["--attempt-id"], exitCode, values["--signature-sha256"], time.Now())
+	return writeHaltResult(result, stdout, stderr)
+}
+
+func runHaltStatus(args []string, stdout, stderr io.Writer) int {
+	values, diagnostic := haltArguments(args, false)
+	if diagnostic != nil {
+		_ = halt.WriteCanonical(stderr, diagnostic)
+		return 2
+	}
+	result := halt.Status(values["--project"], values["--task-id"])
+	return writeHaltResult(result, stdout, stderr)
+}
+
+func haltArguments(args []string, record bool) (map[string]string, *halt.Diagnostic) {
+	if len(args)%2 != 0 {
+		return nil, &halt.Diagnostic{Code: "E_HALT_REQUEST", Message: "arguments must be flag-value pairs", Path: "/arguments"}
+	}
+	allowed := map[string]bool{"--project": true, "--task-id": true}
+	required := []string{"--project", "--task-id"}
+	if record {
+		allowed["--attempt-id"], allowed["--exit-code"], allowed["--signature-sha256"] = true, true, true
+		required = append(required, "--attempt-id", "--exit-code")
+	}
+	values := make(map[string]string)
+	for index := 0; index < len(args); index += 2 {
+		if !allowed[args[index]] || values[args[index]] != "" || args[index+1] == "" {
+			return nil, &halt.Diagnostic{Code: "E_HALT_REQUEST", Message: "arguments contain an unknown, duplicate, or empty value", Path: "/arguments"}
+		}
+		values[args[index]] = args[index+1]
+	}
+	for _, name := range required {
+		if values[name] == "" {
+			return nil, &halt.Diagnostic{Code: "E_HALT_REQUEST", Message: "required argument is missing", Path: "/arguments"}
+		}
+	}
+	return values, nil
+}
+
+func writeHaltResult(result halt.Result, stdout, stderr io.Writer) int {
+	if result.Diagnostic != nil {
+		if halt.WriteCanonical(stderr, result.Diagnostic) != nil {
+			return 2
+		}
+		return result.ExitCode
+	}
+	if result.State == nil || halt.WriteCanonical(stdout, result.State) != nil {
+		return 2
+	}
+	return result.ExitCode
 }
 
 func runEvidence(args []string, stdout, stderr io.Writer) int {

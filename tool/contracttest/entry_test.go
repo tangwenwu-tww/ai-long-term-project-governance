@@ -58,7 +58,7 @@ func TestEntryAppendManagedReferencePlan(t *testing.T) {
 	setPointer(t, manifest, "/governance/phase_basis/assessed_by", "human:owner")
 
 	plan := requireEntryPlan(t, runManifest(t, target, manifest, true))
-	if plan.ContractVersion != "0.3-draft" {
+	if plan.ContractVersion != "0.4-draft" {
 		t.Fatalf("contract version = %q", plan.ContractVersion)
 	}
 	agent := requireEntryOperation(t, plan, "agent_entry")
@@ -272,7 +272,7 @@ func TestEntryAppendManagedReferenceRejectsTargetChangeAfterPlan(t *testing.T) {
 func entryManifest(t *testing.T, target, mode string, approved *string) map[string]any {
 	t.Helper()
 	manifest := baseManifest(t, target)
-	setPointer(t, manifest, "/contract_version", "0.3-draft")
+	setPointer(t, manifest, "/contract_version", "0.4-draft")
 	setPointer(t, manifest, "/layout/agent_entry_integration", map[string]any{
 		"mode": mode, "approved_sha256": approved,
 	})
