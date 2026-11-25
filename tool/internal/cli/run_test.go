@@ -79,3 +79,23 @@ func TestExperimentalPlanGuard(t *testing.T) {
 		}
 	})
 }
+
+func TestExperimentalApplyGuardAndApproval(t *testing.T) {
+	t.Run("disabled", func(t *testing.T) {
+		t.Setenv("AIGOV_ENABLE_EXPERIMENTAL_APPLY", "")
+		var stdout, stderr bytes.Buffer
+		code := Run([]string{"apply", "--manifest", "manifest.json", "--plan-sha256", "bad"}, &stdout, &stderr)
+		if code != 2 || stdout.String() != "" || stderr.String() != "experimental apply is disabled; set AIGOV_ENABLE_EXPERIMENTAL_APPLY=1 to enable\n" {
+			t.Fatalf("disabled apply = code %d stdout %q stderr %q", code, stdout.String(), stderr.String())
+		}
+	})
+	t.Run("missing approval", func(t *testing.T) {
+		t.Setenv("AIGOV_ENABLE_EXPERIMENTAL_APPLY", "1")
+		var stdout, stderr bytes.Buffer
+		code := Run([]string{"apply", "--manifest", "manifest.json"}, &stdout, &stderr)
+		want := "{\"code\":\"E_PLAN_APPROVAL_REQUIRED\",\"path\":\"/plan_sha256\",\"message\":\"provide the complete approved plan stdout SHA-256\"}\n"
+		if code != 2 || stdout.String() != "" || stderr.String() != want {
+			t.Fatalf("missing approval = code %d stdout %q stderr %q", code, stdout.String(), stderr.String())
+		}
+	})
+}

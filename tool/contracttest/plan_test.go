@@ -29,6 +29,14 @@ type commandResult struct {
 	stderr string
 }
 
+type applyOutput struct {
+	ContractVersion string   `json:"contract_version"`
+	InstanceID      string   `json:"instance_id"`
+	PlanSHA256      string   `json:"plan_sha256"`
+	Status          string   `json:"status"`
+	Created         []string `json:"created"`
+}
+
 type diagnostic struct {
 	Code    string `json:"code"`
 	Path    string `json:"path"`
@@ -895,6 +903,265 @@ func TestTargetSafetyAndProjectFactMatrix(t *testing.T) {
 	})
 }
 
+func TestApplyApprovedPlanAndIdempotence(t *testing.T) {
+	target := t.TempDir()
+	manifest := baseManifest(t, target)
+	setPointer(t, manifest, "/integration/mode", "apply")
+	manifestPath := writeManifestFile(t, manifest)
+
+	firstPlan := runCommand(t, target, manifestPath, true)
+	requirePlanSuccess(t, firstPlan)
+	firstHash := sha256.Sum256([]byte(firstPlan.stdout))
+	firstHashHex := hex.EncodeToString(firstHash[:])
+	firstApply := runRawCLI(t, target, []string{"apply", "--manifest", manifestPath, "--plan-sha256", firstHashHex}, true)
+	if firstApply.code != 0 || firstApply.stderr != "" {
+		t.Fatalf("first apply = %#v", firstApply)
+	}
+	var applied applyOutput
+	if err := json.Unmarshal([]byte(firstApply.stdout), &applied); err != nil {
+		t.Fatalf("apply stdout is not JSON: %v: %q", err, firstApply.stdout)
+	}
+	wantCreated := []string{".ai-governance/instance.json", ".ai-governance/schemas/install-manifest.schema.json", ".ai-governance/schemas/instance.schema.json", "AGENTS.md"}
+	if applied.ContractVersion != "0.2-draft" || applied.InstanceID != "inst-example-01" || applied.PlanSHA256 != firstHashHex || applied.Status != "APPLIED" || fmt.Sprint(applied.Created) != fmt.Sprint(wantCreated) {
+		t.Fatalf("apply output = %#v", applied)
+	}
+	if raw, err := os.ReadFile(filepath.Join(target, "AGENTS.md")); err != nil || string(raw) != canonicalAgent {
+		t.Fatalf("installed AGENTS = %q, %v", raw, err)
+	}
+	if raw, err := os.ReadFile(filepath.Join(target, ".ai-governance", "instance.json")); err != nil || string(raw) != canonicalInstance {
+		t.Fatalf("installed instance = %q, %v", raw, err)
+	}
+	if matches, _ := filepath.Glob(filepath.Join(target, "**", ".aigov-*")); len(matches) != 0 {
+		t.Fatalf("apply left internal files: %v", matches)
+	}
+	if runtime.GOOS != "windows" {
+		for _, relative := range wantCreated {
+			if info, err := os.Stat(filepath.Join(target, filepath.FromSlash(relative))); err != nil || info.Mode().Perm() != 0o644 {
+				t.Fatalf("final mode %s = %v, %v; want 0644", relative, info, err)
+			}
+		}
+		for _, relative := range []string{".ai-governance", ".ai-governance/schemas"} {
+			if info, err := os.Stat(filepath.Join(target, filepath.FromSlash(relative))); err != nil || info.Mode().Perm() != 0o755 {
+				t.Fatalf("directory mode %s = %v, %v; want 0755", relative, info, err)
+			}
+		}
+	}
+	assertFreshProcessCanReadInstalledGovernance(t, target)
+
+	secondPlan := runCommand(t, target, manifestPath, true)
+	requirePlanSuccess(t, secondPlan)
+	secondHash := sha256.Sum256([]byte(secondPlan.stdout))
+	secondHashHex := hex.EncodeToString(secondHash[:])
+	secondApply := runRawCLI(t, target, []string{"apply", "--manifest", manifestPath, "--plan-sha256", secondHashHex}, true)
+	if secondApply.code != 0 || secondApply.stderr != "" {
+		t.Fatalf("second apply = %#v", secondApply)
+	}
+	var noop applyOutput
+	if err := json.Unmarshal([]byte(secondApply.stdout), &noop); err != nil || noop.Status != "NO_CHANGES" || len(noop.Created) != 0 {
+		t.Fatalf("second apply output = %#v, %v", noop, err)
+	}
+}
+
+func TestFreshProcessInstalledGovernanceReader(t *testing.T) {
+	target := os.Getenv("AIGOV_FRESH_PROCESS_TARGET")
+	if target == "" {
+		return
+	}
+	agent, err := os.ReadFile(filepath.Join(target, "AGENTS.md"))
+	if err != nil || !bytes.Contains(agent, []byte(`"phase":0`)) || !bytes.Contains(agent, []byte(`"instance_id":"inst-example-01"`)) {
+		t.Fatalf("agent facts unavailable: %v %q", err, agent)
+	}
+	raw, err := os.ReadFile(filepath.Join(target, ".ai-governance", "instance.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var instance struct {
+		InstanceID   string            `json:"instance_id"`
+		ManagedFiles map[string]string `json:"managed_files"`
+	}
+	if err := json.Unmarshal(raw, &instance); err != nil || instance.InstanceID != "inst-example-01" || len(instance.ManagedFiles) != 2 {
+		t.Fatalf("instance facts unavailable: %#v, %v", instance, err)
+	}
+	for logical, want := range instance.ManagedFiles {
+		name := strings.TrimPrefix(logical, "schema_root/")
+		content, err := os.ReadFile(filepath.Join(target, ".ai-governance", "schemas", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := sha256.Sum256(content)
+		if hex.EncodeToString(got[:]) != want {
+			t.Fatalf("managed schema %s digest changed", logical)
+		}
+	}
+}
+
+func assertFreshProcessCanReadInstalledGovernance(t *testing.T, target string) {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestFreshProcessInstalledGovernanceReader$")
+	cmd.Env = append(os.Environ(), "AIGOV_FRESH_PROCESS_TARGET="+target)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("fresh-process governance read: %v\n%s", err, output)
+	}
+}
+
+func TestApplyRejectsApprovedPlanAfterTargetChange(t *testing.T) {
+	cases := []struct {
+		name   string
+		before []byte
+		after  []byte
+	}{
+		{name: "added", before: nil, after: []byte("added after approval\n")},
+		{name: "modified", before: []byte("before approval\n"), after: []byte("changed after approval\n")},
+		{name: "deleted", before: []byte("before approval\n"), after: nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			target := t.TempDir()
+			agent := filepath.Join(target, "AGENTS.md")
+			if tc.before != nil {
+				if err := os.WriteFile(agent, tc.before, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			manifest := baseManifest(t, target)
+			setPointer(t, manifest, "/integration/mode", "apply")
+			manifestPath := writeManifestFile(t, manifest)
+			planned := runCommand(t, target, manifestPath, true)
+			hash := sha256.Sum256([]byte(planned.stdout))
+			if tc.after == nil {
+				if err := os.Remove(agent); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.WriteFile(agent, tc.after, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			beforeApply := snapshotTree(t, target)
+			got := runRawCLI(t, target, []string{"apply", "--manifest", manifestPath, "--plan-sha256", hex.EncodeToString(hash[:])}, true)
+			requireOnlyDiagnostic(t, got, "E_PLAN_CHANGED", "/plan_sha256")
+			if afterApply := snapshotTree(t, target); fmt.Sprint(afterApply) != fmt.Sprint(beforeApply) {
+				t.Fatalf("changed-target apply wrote files\nbefore=%v\nafter=%v", beforeApply, afterApply)
+			}
+		})
+	}
+}
+
+func TestApplyRejectsParentLinkCreatedAfterApproval(t *testing.T) {
+	target := t.TempDir()
+	external := t.TempDir()
+	manifest := baseManifest(t, target)
+	setPointer(t, manifest, "/integration/mode", "apply")
+	setPointer(t, manifest, "/layout/resources/agent_entry", "linked/AGENTS.md")
+	manifestPath := writeManifestFile(t, manifest)
+	planned := runCommand(t, target, manifestPath, true)
+	requirePlanSuccess(t, planned)
+	hash := sha256.Sum256([]byte(planned.stdout))
+	link := filepath.Join(target, "linked")
+	if runtime.GOOS == "windows" {
+		output, err := exec.Command("cmd", "/c", "mklink", "/J", link, external).CombinedOutput()
+		if err != nil {
+			t.Skipf("host cannot create junction fixture: %v: %s", err, output)
+		}
+	} else if err := os.Symlink(external, link); err != nil {
+		t.Skipf("host cannot create directory symlink fixture: %v", err)
+	}
+	before := snapshotTree(t, target)
+	got := runRawCLI(t, target, []string{"apply", "--manifest", manifestPath, "--plan-sha256", hex.EncodeToString(hash[:])}, true)
+	if got.code != 2 || got.stdout != "" || !strings.Contains(got.stderr, `"code":"E_TARGET_`) {
+		t.Fatalf("parent link result = %#v", got)
+	}
+	if after := snapshotTree(t, target); fmt.Sprint(after) != fmt.Sprint(before) {
+		t.Fatalf("parent link apply changed target\nbefore=%v\nafter=%v", before, after)
+	}
+	if entries, err := os.ReadDir(external); err != nil || len(entries) != 0 {
+		t.Fatalf("apply escaped through parent link: %v, %v", entries, err)
+	}
+}
+
+func TestApplyRequiresApprovalWithoutWriting(t *testing.T) {
+	target := t.TempDir()
+	manifest := baseManifest(t, target)
+	setPointer(t, manifest, "/integration/mode", "apply")
+	manifestPath := writeManifestFile(t, manifest)
+	before := snapshotTree(t, target)
+	got := runRawCLI(t, target, []string{"apply", "--manifest", manifestPath}, true)
+	after := snapshotTree(t, target)
+	if got.code != 2 || got.stdout != "" || fmt.Sprint(before) != fmt.Sprint(after) {
+		t.Fatalf("missing approval = %#v before=%v after=%v", got, before, after)
+	}
+	requireOnlyDiagnostic(t, got, "E_PLAN_APPROVAL_REQUIRED", "/plan_sha256")
+}
+
+func TestApplyProtectsExistingProjectFact(t *testing.T) {
+	target := t.TempDir()
+	agentPath := filepath.Join(target, "AGENTS.md")
+	content := []byte("owned by target project\n")
+	if err := os.WriteFile(agentPath, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.Stat(agentPath)
+	manifest := baseManifest(t, target)
+	setPointer(t, manifest, "/integration/mode", "apply")
+	manifestPath := writeManifestFile(t, manifest)
+	approvedPlan := runCommand(t, target, manifestPath, true)
+	approvedHash := sha256.Sum256([]byte(approvedPlan.stdout))
+	got := runRawCLI(t, target, []string{"apply", "--manifest", manifestPath, "--plan-sha256", hex.EncodeToString(approvedHash[:])}, true)
+	if got.code != 0 || got.stderr != "" {
+		t.Fatalf("apply with existing agent = %#v", got)
+	}
+	var output applyOutput
+	if err := json.Unmarshal([]byte(got.stdout), &output); err != nil || len(output.Created) != 3 {
+		t.Fatalf("apply output = %#v, %v", output, err)
+	}
+	afterContent, _ := os.ReadFile(agentPath)
+	after, _ := os.Stat(agentPath)
+	if !bytes.Equal(afterContent, content) || before.Mode() != after.Mode() || !before.ModTime().Equal(after.ModTime()) {
+		t.Fatalf("project fact changed: before=%v after=%v content=%q", before, after, afterContent)
+	}
+}
+
+func TestApplyFailClosedMatrix(t *testing.T) {
+	t.Run("wrong mode", func(t *testing.T) {
+		target := t.TempDir()
+		manifest := baseManifest(t, target)
+		path := writeManifestFile(t, manifest)
+		planned := runCommand(t, target, path, true)
+		hash := sha256.Sum256([]byte(planned.stdout))
+		requireOnlyDiagnostic(t, runRawCLI(t, target, []string{"apply", "--manifest", path, "--plan-sha256", hex.EncodeToString(hash[:])}, true), "E_APPLY_MODE", "/integration/mode")
+	})
+	t.Run("changed approval", func(t *testing.T) {
+		target := t.TempDir()
+		manifest := baseManifest(t, target)
+		setPointer(t, manifest, "/integration/mode", "apply")
+		path := writeManifestFile(t, manifest)
+		requireOnlyDiagnostic(t, runRawCLI(t, target, []string{"apply", "--manifest", path, "--plan-sha256", strings.Repeat("0", 64)}, true), "E_PLAN_CHANGED", "/plan_sha256")
+	})
+	t.Run("conflict", func(t *testing.T) {
+		target := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(target, ".ai-governance"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(target, ".ai-governance", "instance.json"), []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		manifest := baseManifest(t, target)
+		setPointer(t, manifest, "/integration/mode", "apply")
+		path := writeManifestFile(t, manifest)
+		planned := runCommand(t, target, path, true)
+		hash := sha256.Sum256([]byte(planned.stdout))
+		requireOnlyDiagnostic(t, runRawCLI(t, target, []string{"apply", "--manifest", path, "--plan-sha256", hex.EncodeToString(hash[:])}, true), "E_PLAN_CONFLICT", "/operations")
+	})
+	t.Run("feature disabled", func(t *testing.T) {
+		target := t.TempDir()
+		manifest := baseManifest(t, target)
+		setPointer(t, manifest, "/integration/mode", "apply")
+		path := writeManifestFile(t, manifest)
+		got := runRawCLI(t, target, []string{"apply", "--manifest", path, "--plan-sha256", strings.Repeat("0", 64)}, false)
+		if got.code != 2 || got.stdout != "" || got.stderr != "experimental apply is disabled; set AIGOV_ENABLE_EXPERIMENTAL_APPLY=1 to enable\n" {
+			t.Fatalf("disabled apply = %#v", got)
+		}
+	})
+}
+
 func writeCanonicalTargets(t *testing.T, target string, conflict bool) {
 	t.Helper()
 	schemaDir := filepath.Join(target, ".ai-governance", "schemas")
@@ -936,6 +1203,46 @@ func runManifest(t *testing.T, target string, manifest map[string]any, enabled b
 		t.Fatal(err)
 	}
 	return runRawManifest(t, target, raw, enabled)
+}
+
+func writeManifestFile(t *testing.T, manifest map[string]any) string {
+	t.Helper()
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "manifest.json")
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func runRawCLI(t *testing.T, target string, args []string, enableApply bool) commandResult {
+	t.Helper()
+	cmd := exec.Command(cliPath, args...)
+	cmd.Dir = target
+	for _, entry := range os.Environ() {
+		upper := strings.ToUpper(entry)
+		if !strings.HasPrefix(upper, "AIGOV_ENABLE_EXPERIMENTAL_PLAN=") && !strings.HasPrefix(upper, "AIGOV_ENABLE_EXPERIMENTAL_APPLY=") {
+			cmd.Env = append(cmd.Env, entry)
+		}
+	}
+	if enableApply {
+		cmd.Env = append(cmd.Env, "AIGOV_ENABLE_EXPERIMENTAL_APPLY=1")
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	err := cmd.Run()
+	code := 0
+	if err != nil {
+		exitErr, ok := err.(*exec.ExitError)
+		if !ok {
+			t.Fatalf("run CLI: %v", err)
+		}
+		code = exitErr.ExitCode()
+	}
+	return commandResult{code: code, stdout: stdout.String(), stderr: stderr.String()}
 }
 
 func runRawManifest(t *testing.T, target string, raw []byte, enabled bool) commandResult {
@@ -1029,6 +1336,10 @@ func requireOnlyDiagnostic(t *testing.T, got commandResult, code, pointer string
 		"E_UNKNOWN_RESOURCE": "use ", "E_UNSAFE_PATH": "use ", "E_RESOURCE_COLLISION": "map ",
 		"E_GIT_REQUIRED": "initialize ", "E_REVIEW_UNAVAILABLE": "provide ",
 		"E_TARGET_ESCAPE": "use ", "E_TARGET_TYPE": "replace ", "E_TARGET_READ": "make ",
+		"E_PLAN_APPROVAL_REQUIRED": "provide ",
+		"E_APPLY_MODE":             "set ", "E_PLAN_CHANGED": "run ", "E_PLAN_CONFLICT": "resolve ",
+		"E_INTERNAL_PATH_COLLISION": "move ", "E_APPLY_LOCKED": "remove ", "E_TARGET_CHANGED": "rerun ",
+		"E_APPLY_TEMP_CONFLICT": "inspect ", "E_APPLY_WRITE": "fix ", "E_APPLY_ROLLBACK": "stop ",
 	}[code]
 	if wantDirection == "" || !strings.HasPrefix(diag.Message, wantDirection) {
 		t.Fatalf("diagnostic message %q lacks repair direction %q", diag.Message, wantDirection)
