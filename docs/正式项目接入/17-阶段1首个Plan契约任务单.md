@@ -184,3 +184,15 @@ finally {
 ## 更新记录
 
 - 2026-11-24：在阶段 0 最终人工放行后创建首个阶段 1 contract-first 任务。
+- 2026-11-25：以 `95326a6` 冻结诊断契约、`2479ba0` 提交先行 contract tests、`979eaf6` 实现最小只读 plan，并 fast-forward 合并至 `master`。
+
+## 完成证据
+
+- 独立审查：PASS（Critical 0 / Major 0 / Minor 0）。
+- `go test -count=1 ./...`：退出码 0。
+- `go vet ./...`：退出码 0。
+- `go mod tidy -diff`：退出码 0，无 diff。
+- 独立构建：退出码 0。
+- 黑盒退出码：有效 manifest 为 0；缺少 `phase_basis`、未知字段与越界路径、功能关闭分别为 2、2、2。
+- 零写入、确定性复跑、完整 manifest 负向矩阵、effective resource collision 与 selection realpath containment 均由 `tool/contracttest/plan_test.go` 覆盖并通过。
+- 实际变更文件均在本任务 `allowed_files` 内；未实现 `apply`、`doctor`、升级、回滚、状态机、信任或发布逻辑。
