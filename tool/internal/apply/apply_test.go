@@ -47,6 +47,82 @@ func TestFailureInjectionRestoresBlankTarget(t *testing.T) {
 	}
 }
 
+func TestUpdateFailureInjectionRestoresOriginalAgentEntry(t *testing.T) {
+	stages := []string{"update-backup", "update-publish", "update-final-hash", "lock-cleanup", "internal-cleanup", "backup-cleanup"}
+	for _, stage := range stages {
+		t.Run(stage, func(t *testing.T) {
+			target := t.TempDir()
+			agent, original, originalInfo, manifest := writeAppendManifest(t, target)
+			approved := planHash(t, manifest, target)
+			testFailpoint = func(current string) bool { return current == stage }
+			defer func() { testFailpoint = nil }()
+
+			result := Execute(manifest, target, fixedNow, "0.1.0-dev", approved)
+			if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "E_APPLY_WRITE" {
+				t.Fatalf("result = %#v", result)
+			}
+			assertRestoredAgentEntry(t, target, agent, original, originalInfo)
+		})
+	}
+}
+
+func TestUpdateRollbackFailureKeepsBackupAndRecoveryLock(t *testing.T) {
+	target := t.TempDir()
+	_, original, _, manifest := writeAppendManifest(t, target)
+	approved := planHash(t, manifest, target)
+	testFailpoint = func(stage string) bool {
+		return stage == "update-publish" || stage == "rollback-update-rename"
+	}
+	defer func() { testFailpoint = nil }()
+
+	result := Execute(manifest, target, fixedNow, "0.1.0-dev", approved)
+	if len(result.Diagnostics) != 2 || result.Diagnostics[0].Code != "E_APPLY_WRITE" || result.Diagnostics[1].Code != "E_APPLY_ROLLBACK" {
+		t.Fatalf("result = %#v", result)
+	}
+	lock := filepath.Join(target, ".ai-governance", ".aigov-internal", "apply.lock")
+	if raw, err := os.ReadFile(lock); err != nil || string(raw) != approved+"\n" {
+		t.Fatalf("recovery lock = %q, %v", raw, err)
+	}
+	backups, err := filepath.Glob(filepath.Join(target, ".aigov-bak-*"))
+	if err != nil || len(backups) != 1 {
+		t.Fatalf("backups = %v, %v", backups, err)
+	}
+	if raw, err := os.ReadFile(backups[0]); err != nil || string(raw) != string(original) {
+		t.Fatalf("backup = %q, %v", raw, err)
+	}
+}
+
+func TestExternalUpdateChangeStopsRollbackAndKeepsLock(t *testing.T) {
+	target := t.TempDir()
+	agent, _, _, manifest := writeAppendManifest(t, target)
+	approved := planHash(t, manifest, target)
+	external := []byte("external concurrent change\n")
+	changed := false
+	testFailpoint = func(stage string) bool {
+		if stage == "update-publish" && !changed {
+			changed = true
+			if err := os.WriteFile(agent, external, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			return true
+		}
+		return false
+	}
+	defer func() { testFailpoint = nil }()
+
+	result := Execute(manifest, target, fixedNow, "0.1.0-dev", approved)
+	if len(result.Diagnostics) != 2 || result.Diagnostics[0].Code != "E_APPLY_WRITE" || result.Diagnostics[1].Code != "E_APPLY_ROLLBACK" {
+		t.Fatalf("result = %#v", result)
+	}
+	if raw, err := os.ReadFile(agent); err != nil || string(raw) != string(external) {
+		t.Fatalf("external update was changed: %q, %v", raw, err)
+	}
+	lock := filepath.Join(target, ".ai-governance", ".aigov-internal", "apply.lock")
+	if _, err := os.Stat(lock); err != nil {
+		t.Fatalf("recovery lock missing: %v", err)
+	}
+}
+
 func TestRollbackFailureMatrixKeepsRecoveryLock(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -213,6 +289,23 @@ func TestInternalPathCollisionMatrix(t *testing.T) {
 		}
 	})
 
+	t.Run("final collides with update backup or its child", func(t *testing.T) {
+		logical := "agent_entry"
+		backup := ".aigov-bak-" + approved + "-" + digest([]byte(logical))
+		for _, collision := range []string{backup, backup + "/child"} {
+			operations := []plan.Operation{
+				{Action: "CREATE", LogicalID: "instance_manifest", Path: ".ai-governance/instance.json"},
+				{Action: "UPDATE", LogicalID: logical, Path: "AGENTS.md"},
+				{Action: "CREATE", LogicalID: "collision", Path: collision},
+			}
+			raw, _ := json.Marshal(map[string]any{"operations": operations})
+			result := plan.Result{ProjectRoot: t.TempDir(), Lines: []string{string(raw)}, Prepared: []plan.PreparedFile{{Operation: operations[1]}}}
+			if _, code := internalPaths(result, approved); code != "E_INTERNAL_PATH_COLLISION" {
+				t.Fatalf("collision %q code = %q", collision, code)
+			}
+		}
+	})
+
 	t.Run("duplicate logical ids collide temps", func(t *testing.T) {
 		operations := []plan.Operation{{Action: "CREATE", LogicalID: "instance_manifest", Path: ".ai-governance/instance.json"}}
 		raw, _ := json.Marshal(map[string]any{"operations": operations})
@@ -334,7 +427,7 @@ func writeManifest(t *testing.T, target string, resources map[string]any) string
 		resources = map[string]any{}
 	}
 	manifest := map[string]any{
-		"contract_version": "0.2-draft", "instance_id": "inst-example-01",
+		"contract_version": "0.3-draft", "instance_id": "inst-example-01",
 		"project": map[string]any{"name": "example-service", "root": target, "technology": []any{"Go"}, "has_frontend": false, "git_required": false},
 		"governance": map[string]any{
 			"phase": 0, "phase_basis": map[string]any{"assessed_at": "2026-11-25T12:00:00Z", "assessed_by": "human:project-owner", "signals": []any{"product_idea_exists"}},
@@ -342,7 +435,10 @@ func writeManifest(t *testing.T, target string, resources map[string]any) string
 			"independent_review_available": false, "independent_review_source": nil,
 		},
 		"integration": map[string]any{"ci": "none", "mode": "apply"},
-		"layout":      map[string]any{"profile": "custom-v0", "resources": resources},
+		"layout": map[string]any{
+			"profile": "custom-v0", "resources": resources,
+			"agent_entry_integration": map[string]any{"mode": "preserve-or-generate", "approved_sha256": nil},
+		},
 	}
 	raw, err := json.Marshal(manifest)
 	if err != nil {
@@ -353,4 +449,60 @@ func writeManifest(t *testing.T, target string, resources map[string]any) string
 		t.Fatal(err)
 	}
 	return path
+}
+
+func writeAppendManifest(t *testing.T, target string) (string, []byte, os.FileInfo, string) {
+	t.Helper()
+	agent := filepath.Join(target, "AGENTS.md")
+	original := []byte("# Existing project instructions\r\n\r\nKeep this exact.\r\n")
+	if err := os.WriteFile(agent, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	originalTime := time.Date(2024, 2, 3, 4, 5, 6, 0, time.UTC)
+	if err := os.Chtimes(agent, originalTime, originalTime); err != nil {
+		t.Fatal(err)
+	}
+	originalInfo, err := os.Stat(agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := map[string]any{
+		"contract_version": "0.3-draft", "instance_id": "inst-example-01",
+		"project": map[string]any{"name": "example-service", "root": target, "technology": []any{"Go"}, "has_frontend": false, "git_required": false},
+		"governance": map[string]any{
+			"phase": 0, "phase_basis": map[string]any{"assessed_at": "2026-11-25T12:00:00Z", "assessed_by": "human:project-owner", "signals": []any{"product_idea_exists"}},
+			"core_hypothesis": "Target users choose X because Y", "selection_finalized": false, "selection_record": nil,
+			"independent_review_available": false, "independent_review_source": nil,
+		},
+		"integration": map[string]any{"ci": "none", "mode": "apply"},
+		"layout": map[string]any{
+			"profile": "custom-v0", "resources": map[string]any{},
+			"agent_entry_integration": map[string]any{"mode": "append-managed-reference", "approved_sha256": digest(original)},
+		},
+	}
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(t.TempDir(), "manifest.json")
+	if err := os.WriteFile(manifestPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return agent, original, originalInfo, manifestPath
+}
+
+func assertRestoredAgentEntry(t *testing.T, target, agent string, original []byte, originalInfo os.FileInfo) {
+	t.Helper()
+	raw, err := os.ReadFile(agent)
+	if err != nil || string(raw) != string(original) {
+		t.Fatalf("restored bytes = %q, %v", raw, err)
+	}
+	info, err := os.Stat(agent)
+	if err != nil || info.Mode().Perm() != originalInfo.Mode().Perm() || !info.ModTime().Equal(originalInfo.ModTime()) {
+		t.Fatalf("restored metadata = mode %v mtime %v; want mode %v mtime %v; err %v", info.Mode(), info.ModTime(), originalInfo.Mode(), originalInfo.ModTime(), err)
+	}
+	entries, err := os.ReadDir(target)
+	if err != nil || len(entries) != 1 || entries[0].Name() != "AGENTS.md" {
+		t.Fatalf("rollback left target entries %v, %v", entries, err)
+	}
 }

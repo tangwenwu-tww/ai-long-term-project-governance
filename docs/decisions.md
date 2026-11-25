@@ -150,3 +150,28 @@ v0 不以 `curl | shell`、自更新器或 winget/Homebrew/apt 作为主入口�
 
 出现第一个真实外部用户、首次线上故障、代码约 2 万行、模块超过 5 个，或项目负责人提前要求恢复审核时，重新评估阶段并恢复独立 Reviewer 门禁。进入阶段 2 后本决定自动停止适用，无需另行豁免。
 
+## DEC-2026-11-25-006：已有 AGENTS 使用获批托管引用块
+
+- 状态：已接受
+- 决策日期：2026-11-25
+- 决策人：项目负责人
+- 批准 ID：`ENTRY-001-R1`
+- 批准原文：`批准 ENTRY-001-R1；phase_snapshot 仅由 append-managed-reference 生成`
+- 决策范围：安装 manifest 版本、已有 Agent 入口的最小接入方式，以及安装期 phase snapshot 的生成边界
+
+### 决定
+
+安装 manifest 升级为精确版本 `0.3-draft`，新增必填 `layout.agent_entry_integration`。`preserve-or-generate` 保持原行为且 `approved_sha256` 必须为 null；已有 `AGENTS.md` 是项目事实，plan 只输出 `NOOP project_fact_preserved`，不生成 phase snapshot。
+
+只有 `append-managed-reference` 可以修改已有入口。调用方必须提供获批 preimage 的 SHA-256；工具校验普通 UTF-8、NUL、换行风格和摘要后，仅在原始字节末尾追加一个有稳定边界标记的最小引用块。plan 将其表示为 `UPDATE/shared`，原始字节必须是 postimage 的精确前缀。该模式同时生成 tool-owned `.ai-governance/phase.json`，并在 instance manifest 的 `managed_files` 中记录其摘要；其他模式不得生成该文件。
+
+apply 必须在 exclusive lock 内重算并重新核对 preimage。UPDATE 使用同目录 temp 和显式 backup，ledger 记录原字节、preimage/postimage 摘要、mode 与 mtime；可观察失败恢复原状态，不能确认安全恢复时保留 recovery lock 并返回 `E_APPLY_ROLLBACK`。外部修改后的 postimage 不得被回滚逻辑删除。
+
+### 选择理由
+
+阶段 1 E2E 已证明新 Agent 无法只靠目标仓库发现 phase、核心假设和 instance manifest。对已有入口整份替换会越过项目事实所有权；只写 instance 又不能建立可发现路径。获批 preimage 上的最小 append-only 引用块同时保留原入口、建立本地发现链，并给 UPDATE 提供可审核的前后摘要和回滚边界。
+
+### 范围限制与推翻条件
+
+本决定不补 evidence gate、runtime、自动三次止损、doctor、review gate，也不证明强杀/掉电恢复或跨平台 CI 已通过。若后续证据证明托管块无法与主流 Agent 入口规则共存、目标平台无法可靠实现同目录 backup/rename，或 phase 事实迁移到另一已批准本地入口，可通过新 ADR 和契约版本升级替换；不得静默扩大托管块或覆盖项目事实。
+

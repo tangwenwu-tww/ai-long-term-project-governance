@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["contract_version", "instance_id", "project", "governance", "integration", "layout"],
   "properties": {
-    "contract_version": { "const": "0.2-draft" },
+    "contract_version": { "const": "0.3-draft" },
     "instance_id": {
       "type": "string",
       "minLength": 8,
@@ -75,9 +75,30 @@
     "layout": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["profile", "resources"],
+      "required": ["profile", "resources", "agent_entry_integration"],
       "properties": {
         "profile": { "enum": ["default-v0", "custom-v0"] },
+        "agent_entry_integration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "approved_sha256"],
+          "properties": {
+            "mode": { "enum": ["preserve-or-generate", "append-managed-reference"] },
+            "approved_sha256": {
+              "oneOf": [
+                { "type": "null" },
+                { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+              ]
+            }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "mode": { "const": "preserve-or-generate" } } },
+              "then": { "properties": { "approved_sha256": { "type": "null" } } },
+              "else": { "properties": { "approved_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } } }
+            }
+          ]
+        },
         "resources": {
           "type": "object",
           "additionalProperties": false,

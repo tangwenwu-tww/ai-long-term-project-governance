@@ -1,4 +1,4 @@
-// Package apply publishes CREATE operations from an explicitly approved plan.
+// Package apply publishes CREATE and approved UPDATE operations.
 package apply
 
 import (
@@ -47,6 +47,7 @@ type transaction struct {
 	lockCreated bool
 	temps       []string
 	finals      []published
+	updates     []updated
 	createdDirs []string
 }
 
@@ -55,13 +56,25 @@ type published struct {
 	hash string
 }
 
-// Execute recomputes, verifies, and publishes an approved CREATE-only plan.
+type updated struct {
+	path, backup, previousHash, expectedHash string
+	previous                                 []byte
+	mode                                     os.FileMode
+	mtime                                    time.Time
+}
+
+// Execute recomputes, verifies, and publishes an approved plan.
 func Execute(manifestPath, workingDir string, now time.Time, version, approved string) Result {
 	if !shaPattern.MatchString(approved) {
 		return failure("E_PLAN_APPROVAL_REQUIRED")
 	}
 	first := plan.Evaluate(manifestPath, workingDir, now, version)
 	if len(first.Diagnostics) != 0 {
+		for _, item := range first.Diagnostics {
+			if strings.HasPrefix(item.Path, "/targets/") {
+				return failure("E_TARGET_CHANGED")
+			}
+		}
 		return Result{Diagnostics: first.Diagnostics}
 	}
 	if first.Mode != "apply" {
@@ -107,8 +120,20 @@ func Execute(manifestPath, workingDir string, now time.Time, version, approved s
 		if code := ensureDirectory(second.ProjectRoot, filepath.Dir(finalPath), txn); code != "" {
 			return failWithRollback(code, txn)
 		}
+		mode := os.FileMode(0o644)
+		if file.Operation.Action == "UPDATE" {
+			info, err := os.Lstat(finalPath)
+			if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || digestFile(finalPath) != value(file.Operation.ActualSHA256) {
+				return failWithRollback("E_TARGET_CHANGED", txn)
+			}
+			mode = info.Mode().Perm()
+			txn.updates = append(txn.updates, updated{
+				path: finalPath, backup: paths.backups[file.Operation.LogicalID], previousHash: value(file.Operation.ActualSHA256), expectedHash: value(file.Operation.ExpectedSHA256),
+				previous: append([]byte(nil), file.PreviousContent...), mode: mode, mtime: info.ModTime(),
+			})
+		}
 		tempPath := paths.temps[file.Operation.LogicalID]
-		if code := createTemp(tempPath, file.Content, txn); code != "" {
+		if code := createTemp(tempPath, file.Content, mode, txn); code != "" {
 			return failWithRollback(code, txn)
 		}
 	}
@@ -116,6 +141,12 @@ func Execute(manifestPath, workingDir string, now time.Time, version, approved s
 	for _, file := range prepared {
 		finalPath := filepath.Join(second.ProjectRoot, filepath.FromSlash(file.Operation.Path))
 		tempPath := paths.temps[file.Operation.LogicalID]
+		if file.Operation.Action == "UPDATE" {
+			if code := publishUpdate(file, finalPath, tempPath, paths.backups[file.Operation.LogicalID], txn); code != "" {
+				return failWithRollback(code, txn)
+			}
+			continue
+		}
 		if _, err := os.Lstat(finalPath); err == nil {
 			return failWithRollback("E_TARGET_CHANGED", txn)
 		} else if !os.IsNotExist(err) {
@@ -157,7 +188,6 @@ func Execute(manifestPath, workingDir string, now time.Time, version, approved s
 		}
 		removeString(&txn.temps, tempPath)
 	}
-
 	if injected("lock-cleanup") {
 		return failWithRollback("E_APPLY_WRITE", txn)
 	}
@@ -174,9 +204,19 @@ func Execute(manifestPath, workingDir string, now time.Time, version, approved s
 		}
 		removeString(&txn.createdDirs, paths.internal)
 	}
-	created := make([]string, len(prepared))
-	for i, file := range prepared {
-		created[i] = file.Operation.Path
+	// Backups are the last fallible cleanup. Once deleted, no later failure may
+	// require reconstructing a project-owned preimage from process memory.
+	for index := range txn.updates {
+		if injected("backup-cleanup") || os.Remove(txn.updates[index].backup) != nil {
+			return failWithRollback("E_APPLY_WRITE", txn)
+		}
+		txn.updates[index].backup = ""
+	}
+	created := make([]string, 0, len(prepared))
+	for _, file := range prepared {
+		if file.Operation.Action == "CREATE" {
+			created = append(created, file.Operation.Path)
+		}
 	}
 	return success(second, approved, "APPLIED", created)
 }
@@ -185,6 +225,7 @@ type applyPaths struct {
 	internal string
 	lock     string
 	temps    map[string]string
+	backups  map[string]string
 }
 
 func internalPaths(result plan.Result, approved string) (applyPaths, string) {
@@ -208,6 +249,7 @@ func internalPaths(result plan.Result, approved string) (applyPaths, string) {
 	internalRel := path.Join(path.Dir(instancePath), ".aigov-internal")
 	lockRel := path.Join(internalRel, "apply.lock")
 	tempsRel := make(map[string]string, len(result.Prepared))
+	backupsRel := make(map[string]string, len(result.Prepared))
 	logicalHashes := make(map[string]bool)
 	for _, file := range result.Prepared {
 		logicalHash := digest([]byte(file.Operation.LogicalID))
@@ -216,10 +258,16 @@ func internalPaths(result plan.Result, approved string) (applyPaths, string) {
 		}
 		logicalHashes[logicalHash] = true
 		tempsRel[file.Operation.LogicalID] = path.Join(path.Dir(file.Operation.Path), ".aigov-tmp-"+approved+"-"+logicalHash)
+		if file.Operation.Action == "UPDATE" {
+			backupsRel[file.Operation.LogicalID] = path.Join(path.Dir(file.Operation.Path), ".aigov-bak-"+approved+"-"+logicalHash)
+		}
 	}
 	reserved := []string{internalRel, lockRel}
 	for _, temp := range tempsRel {
 		reserved = append(reserved, temp)
+	}
+	for _, backup := range backupsRel {
+		reserved = append(reserved, backup)
 	}
 	for _, final := range allFinals {
 		for _, item := range reserved {
@@ -243,10 +291,15 @@ func internalPaths(result plan.Result, approved string) (applyPaths, string) {
 	for id, relative := range tempsRel {
 		absTemps[id] = filepath.Join(result.ProjectRoot, filepath.FromSlash(relative))
 	}
+	absBackups := make(map[string]string, len(backupsRel))
+	for id, relative := range backupsRel {
+		absBackups[id] = filepath.Join(result.ProjectRoot, filepath.FromSlash(relative))
+	}
 	return applyPaths{
 		internal: filepath.Join(result.ProjectRoot, filepath.FromSlash(internalRel)),
 		lock:     filepath.Join(result.ProjectRoot, filepath.FromSlash(lockRel)),
 		temps:    absTemps,
+		backups:  absBackups,
 	}, ""
 }
 
@@ -337,8 +390,8 @@ func createLock(lock, approved string, txn *transaction) string {
 	return ""
 }
 
-func createTemp(temp string, content []byte, txn *transaction) string {
-	file, err := os.OpenFile(temp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+func createTemp(temp string, content []byte, mode os.FileMode, txn *transaction) string {
+	file, err := os.OpenFile(temp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return "E_APPLY_TEMP_CONFLICT"
@@ -350,7 +403,7 @@ func createTemp(temp string, content []byte, txn *transaction) string {
 		_ = file.Close()
 		return "E_APPLY_WRITE"
 	}
-	if injected("temp-chmod") || (runtime.GOOS != "windows" && file.Chmod(0o644) != nil) {
+	if injected("temp-chmod") || (runtime.GOOS != "windows" && file.Chmod(mode) != nil) {
 		_ = file.Close()
 		return "E_APPLY_WRITE"
 	}
@@ -372,7 +425,40 @@ func createTemp(temp string, content []byte, txn *transaction) string {
 	if injected("temp-hash") || digestFile(temp) != digest(content) {
 		return "E_APPLY_WRITE"
 	}
-	if injected("temp-verify") || (runtime.GOOS == "windows" && injected("temp-windows-attribute")) || verifyFile(temp, digest(content), 0o644) != "" {
+	if injected("temp-verify") || (runtime.GOOS == "windows" && injected("temp-windows-attribute")) || verifyFile(temp, digest(content), mode) != "" {
+		return "E_APPLY_WRITE"
+	}
+	return ""
+}
+
+func publishUpdate(file plan.PreparedFile, finalPath, tempPath, backupPath string, txn *transaction) string {
+	if info, err := os.Lstat(finalPath); err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || digestFile(finalPath) != value(file.Operation.ActualSHA256) {
+		return "E_TARGET_CHANGED"
+	}
+	if _, err := os.Lstat(backupPath); err == nil {
+		return "E_APPLY_TEMP_CONFLICT"
+	} else if !os.IsNotExist(err) {
+		return "E_APPLY_WRITE"
+	}
+	if err := os.Rename(finalPath, backupPath); err != nil {
+		return "E_APPLY_WRITE"
+	}
+	if injected("update-backup") {
+		return "E_APPLY_WRITE"
+	}
+	if err := os.Rename(tempPath, finalPath); err != nil {
+		return "E_APPLY_WRITE"
+	}
+	removeString(&txn.temps, tempPath)
+	if injected("update-publish") {
+		return "E_APPLY_WRITE"
+	}
+	expected := value(file.Operation.ExpectedSHA256)
+	mode := os.FileMode(0o644)
+	if len(txn.updates) != 0 {
+		mode = txn.updates[len(txn.updates)-1].mode
+	}
+	if injected("update-final-hash") || verifyFile(finalPath, expected, mode) != "" {
 		return "E_APPLY_WRITE"
 	}
 	return ""
@@ -455,6 +541,11 @@ func failWithRollback(code string, txn *transaction) Result {
 }
 
 func rollback(txn *transaction) bool {
+	for i := len(txn.updates) - 1; i >= 0; i-- {
+		if !rollbackUpdate(&txn.updates[i]) {
+			return false
+		}
+	}
 	for i := len(txn.finals) - 1; i >= 0; i-- {
 		item := txn.finals[i]
 		info, err := os.Lstat(item.path)
@@ -496,6 +587,64 @@ func rollback(txn *transaction) bool {
 		}
 	}
 	return true
+}
+
+func rollbackUpdate(item *updated) bool {
+	info, finalErr := os.Lstat(item.path)
+	if finalErr == nil {
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return false
+		}
+		current := digestFile(item.path)
+		if current == item.previousHash {
+			if item.backup != "" {
+				_ = os.Remove(item.backup)
+			}
+			return true
+		}
+		if injected("rollback-update-attribute") || current == "" || current != item.expectedHash || os.Remove(item.path) != nil {
+			return false
+		}
+	} else if !os.IsNotExist(finalErr) {
+		return false
+	}
+	if item.backup != "" {
+		if _, err := os.Lstat(item.backup); err == nil {
+			if injected("rollback-update-rename") || os.Rename(item.backup, item.path) != nil {
+				return false
+			}
+			return digestFile(item.path) == item.previousHash
+		} else if !os.IsNotExist(err) {
+			return false
+		}
+	}
+	if injected("rollback-update-recreate") || writeOriginal(item) != nil {
+		return false
+	}
+	return digestFile(item.path) == item.previousHash
+}
+
+func writeOriginal(item *updated) error {
+	file, err := os.OpenFile(item.path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, item.mode)
+	if err != nil {
+		return err
+	}
+	if runtime.GOOS != "windows" {
+		if err := file.Chmod(item.mode); err != nil {
+			_ = file.Close()
+			return err
+		}
+	}
+	written, writeErr := file.Write(item.previous)
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	if writeErr != nil || written != len(item.previous) || syncErr != nil || closeErr != nil {
+		return errors.New("restore original")
+	}
+	if err := os.Chtimes(item.path, item.mtime, item.mtime); err != nil {
+		return err
+	}
+	return nil
 }
 
 func retainRecoveryLock(txn *transaction) {
@@ -565,7 +714,7 @@ func success(result plan.Result, approved, status string, created []string) Resu
 		created = []string{}
 	}
 	return Result{Output: &Output{
-		ContractVersion: "0.2-draft", InstanceID: result.InstanceID, PlanSHA256: approved,
+		ContractVersion: "0.3-draft", InstanceID: result.InstanceID, PlanSHA256: approved,
 		Status: status, Created: created,
 	}}
 }

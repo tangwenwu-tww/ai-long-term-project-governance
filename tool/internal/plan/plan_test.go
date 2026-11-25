@@ -70,7 +70,7 @@ func TestValidateInstanceBytesNegativeMatrix(t *testing.T) {
 		resources[key] = value
 	}
 	base := instanceManifest{
-		SchemaVersion: "0.1-draft", InstanceID: "inst-example-01", InstallContractVersion: "0.2-draft",
+		SchemaVersion: "0.1-draft", InstanceID: "inst-example-01", InstallContractVersion: "0.3-draft",
 		MethodologyVersion: "0.1.0-dev", AssuranceLevel: "declarative", Resources: resources,
 		ManagedFiles: map[string]string{
 			"schema_root/install-manifest.schema.json": strings.Repeat("a", 64),

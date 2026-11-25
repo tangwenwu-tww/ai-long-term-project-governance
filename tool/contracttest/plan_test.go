@@ -94,7 +94,7 @@ func TestInstallManifestSchema(t *testing.T) {
 		t.Fatalf("schema is not valid JSON: %v", err)
 	}
 	sum := sha256.Sum256(raw)
-	if got, want := hex.EncodeToString(sum[:]), "490a29358da5d1ad678effe58635fab5af88cf9693bf0f246d7b30a88abb4ed1"; got != want {
+	if got, want := hex.EncodeToString(sum[:]), "3ac2d770fbc278ae3b5355c606f349566bca2a086848bdb90104d4bc6906eaec"; got != want {
 		t.Fatalf("schema SHA-256 = %s, want canonical %s", got, want)
 	}
 	if got := schema["$schema"]; got != "https://json-schema.org/draft/2020-12/schema" {
@@ -233,7 +233,7 @@ func TestManifestContractVersionUpgrade(t *testing.T) {
 	manifest := baseManifest(t, target)
 	setPointer(t, manifest, "/contract_version", "0.1-draft")
 	got := runManifest(t, target, manifest, true)
-	want := "{\"code\":\"E_CONTRACT_VERSION\",\"path\":\"/contract_version\",\"message\":\"set contract_version to 0.2-draft\"}\n"
+	want := "{\"code\":\"E_CONTRACT_VERSION\",\"path\":\"/contract_version\",\"message\":\"set contract_version to 0.3-draft\"}\n"
 	if got.code != 2 || got.stdout != "" || got.stderr != want {
 		t.Fatalf("old contract version = code %d stdout %q stderr %q; want code 2 stdout empty stderr %q", got.code, got.stdout, got.stderr, want)
 	}
@@ -625,7 +625,7 @@ func TestJSONFailClosedAndDeterministic(t *testing.T) {
 	})
 }
 
-const canonicalInstance = `{"schema_version":"0.1-draft","instance_id":"inst-example-01","install_contract_version":"0.2-draft","methodology_version":"0.1.0-dev","assurance_level":"declarative","resources":{"agent_entry":"AGENTS.md","design_spec":"DESIGN.md","evidence_store":"governance/evidence","instance_manifest":".ai-governance/instance.json","maturity_fact_store":"governance/maturity/facts","maturity_snapshot":".ai-governance/maturity.json","phase_audit_store":"governance/audit/phase","phase_snapshot":".ai-governance/phase.json","policy_snapshot":".ai-governance/policy.json","project_decisions":"docs/decisions.md","review_store":"governance/reviews","runtime_root":".ai-governance/runtime","schema_root":".ai-governance/schemas","task_audit_store":"governance/audit/tasks","task_state_cache":"governance/state","task_store":"governance/tasks","trust_anchor":".ai-governance/trust.json"},"managed_files":{"schema_root/install-manifest.schema.json":"490a29358da5d1ad678effe58635fab5af88cf9693bf0f246d7b30a88abb4ed1","schema_root/instance.schema.json":"6dfe34eda589b1c8a948669fef164c60ff7272b5ed65eeb05f47af669bf559af"}}
+const canonicalInstance = `{"schema_version":"0.1-draft","instance_id":"inst-example-01","install_contract_version":"0.3-draft","methodology_version":"0.1.0-dev","assurance_level":"declarative","resources":{"agent_entry":"AGENTS.md","design_spec":"DESIGN.md","evidence_store":"governance/evidence","instance_manifest":".ai-governance/instance.json","maturity_fact_store":"governance/maturity/facts","maturity_snapshot":".ai-governance/maturity.json","phase_audit_store":"governance/audit/phase","phase_snapshot":".ai-governance/phase.json","policy_snapshot":".ai-governance/policy.json","project_decisions":"docs/decisions.md","review_store":"governance/reviews","runtime_root":".ai-governance/runtime","schema_root":".ai-governance/schemas","task_audit_store":"governance/audit/tasks","task_state_cache":"governance/state","task_store":"governance/tasks","trust_anchor":".ai-governance/trust.json"},"managed_files":{"schema_root/install-manifest.schema.json":"3ac2d770fbc278ae3b5355c606f349566bca2a086848bdb90104d4bc6906eaec","schema_root/instance.schema.json":"c599f4b312ec43aee08bb007a0dc9acf8172006513ce573cc4f0b925bb0ecefb"}}
 `
 
 const canonicalAgent = `---
@@ -670,9 +670,9 @@ func stringPointer(value string) *string { return &value }
 
 func expectedPlanJSON(t *testing.T, state string) string {
 	t.Helper()
-	const instanceHash = "d2334d08bc2f9fec68d66b5f3af59e213d0f518e940057b194de2f25432bee3b"
-	const installHash = "490a29358da5d1ad678effe58635fab5af88cf9693bf0f246d7b30a88abb4ed1"
-	const instanceSchemaHash = "6dfe34eda589b1c8a948669fef164c60ff7272b5ed65eeb05f47af669bf559af"
+	const instanceHash = "96af3ce2f15bd9baa6d650f596126fde713d61c9acafcf88f9b27163a280524f"
+	const installHash = "3ac2d770fbc278ae3b5355c606f349566bca2a086848bdb90104d4bc6906eaec"
+	const instanceSchemaHash = "c599f4b312ec43aee08bb007a0dc9acf8172006513ce573cc4f0b925bb0ecefb"
 	const agentHash = "08958b0e158adf4141fa7219e67146e439f476f240699306bbbfe3d18435ad0a"
 	const conflictHash = "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
 
@@ -693,7 +693,7 @@ func expectedPlanJSON(t *testing.T, state string) string {
 		agentAction, agentReason = "NOOP", "project_fact_preserved"
 		agentExpected, agentActual = nil, stringPointer(agentHash)
 	}
-	plan := expectedPlan{ContractVersion: "0.2-draft", InstanceID: "inst-example-01", Operations: []expectedOperation{
+	plan := expectedPlan{ContractVersion: "0.3-draft", InstanceID: "inst-example-01", Operations: []expectedOperation{
 		managed("instance_manifest", ".ai-governance/instance.json", instanceHash),
 		managed("schema_root/install-manifest.schema.json", ".ai-governance/schemas/install-manifest.schema.json", installHash),
 		managed("schema_root/instance.schema.json", ".ai-governance/schemas/instance.schema.json", instanceSchemaHash),
@@ -733,7 +733,7 @@ func TestInstanceSchemaAndCanonicalBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(raw)
-	if got, want := hex.EncodeToString(sum[:]), "6dfe34eda589b1c8a948669fef164c60ff7272b5ed65eeb05f47af669bf559af"; got != want {
+	if got, want := hex.EncodeToString(sum[:]), "c599f4b312ec43aee08bb007a0dc9acf8172006513ce573cc4f0b925bb0ecefb"; got != want {
 		t.Fatalf("instance schema SHA-256 = %s, want %s", got, want)
 	}
 	var schema map[string]any
@@ -745,7 +745,7 @@ func TestInstanceSchemaAndCanonicalBytes(t *testing.T) {
 	}
 	for name, content := range map[string]string{"instance": canonicalInstance, "agent": canonicalAgent} {
 		sum := sha256.Sum256([]byte(content))
-		want := map[string]string{"instance": "d2334d08bc2f9fec68d66b5f3af59e213d0f518e940057b194de2f25432bee3b", "agent": "08958b0e158adf4141fa7219e67146e439f476f240699306bbbfe3d18435ad0a"}[name]
+		want := map[string]string{"instance": "96af3ce2f15bd9baa6d650f596126fde713d61c9acafcf88f9b27163a280524f", "agent": "08958b0e158adf4141fa7219e67146e439f476f240699306bbbfe3d18435ad0a"}[name]
 		if got := hex.EncodeToString(sum[:]); got != want {
 			t.Fatalf("%s SHA-256 = %s, want %s", name, got, want)
 		}
@@ -922,7 +922,7 @@ func TestApplyApprovedPlanAndIdempotence(t *testing.T) {
 		t.Fatalf("apply stdout is not JSON: %v: %q", err, firstApply.stdout)
 	}
 	wantCreated := []string{".ai-governance/instance.json", ".ai-governance/schemas/install-manifest.schema.json", ".ai-governance/schemas/instance.schema.json", "AGENTS.md"}
-	if applied.ContractVersion != "0.2-draft" || applied.InstanceID != "inst-example-01" || applied.PlanSHA256 != firstHashHex || applied.Status != "APPLIED" || fmt.Sprint(applied.Created) != fmt.Sprint(wantCreated) {
+	if applied.ContractVersion != "0.3-draft" || applied.InstanceID != "inst-example-01" || applied.PlanSHA256 != firstHashHex || applied.Status != "APPLIED" || fmt.Sprint(applied.Created) != fmt.Sprint(wantCreated) {
 		t.Fatalf("apply output = %#v", applied)
 	}
 	if raw, err := os.ReadFile(filepath.Join(target, "AGENTS.md")); err != nil || string(raw) != canonicalAgent {

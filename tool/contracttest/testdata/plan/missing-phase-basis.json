@@ -1,5 +1,5 @@
 {
-  "contract_version": "0.2-draft",
+  "contract_version": "0.3-draft",
   "instance_id": "inst-example-01",
   "project": {
     "name": "x",
@@ -22,6 +22,7 @@
   },
   "layout": {
     "profile": "default-v0",
-    "resources": {}
+    "resources": {},
+    "agent_entry_integration": {"mode": "preserve-or-generate", "approved_sha256": null}
   }
 }

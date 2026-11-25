@@ -44,6 +44,7 @@ status: active
 | [25：阶段 1 真实初始项目 E2E 契约任务单](./25-阶段1真实目标仓库E2E契约任务单.md) | active | r003：支持生成新入口或保留项目自有 AGENTS，只在逐字节复核的隔离副本执行并单独判定入口事实缺口 |
 | [26：阶段 1 真实目标仓库 E2E 结果同步任务单](./26-阶段1真实目标仓库E2E结果同步任务单.md) | active | 查看 a001 的 A–F 实际结果、`CORE_HYPOTHESIS_NOT_PROVEN` 判定与下一任务 T-ENTRY-001 边界 |
 | [27：阶段 1 已有 AGENTS 最小入口契约任务单](./27-阶段1已有AGENTS最小入口契约任务单.md) | active | 查看已批准的 0.3-draft、仅 append 模式生成的 phase snapshot、shared 托管引用块和已建立的红灯黑盒基线 |
+| [28：阶段 1 已有 AGENTS 入口生产实现任务单](./28-阶段1已有AGENTS入口生产实现任务单.md) | active | 实现 0.3-draft、phase snapshot、UPDATE/shared 发布与失败回滚闭包 |
 
 `draft` 文档是待审材料，不得作为实现依据。完成独立 Review 与人工定稿后，逐份转为 `active`；在此之前禁止根据其中的候选结构直接开发安装器。
 

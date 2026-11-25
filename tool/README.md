@@ -34,7 +34,7 @@ go build -o ../out/aigov.exe ./cmd/aigov
 
 启用并运行有效 manifest：
 
-当前安装 manifest 必须使用精确的 `contract_version: 0.2-draft`，并由项目负责人或受控编排器提供符合契约的显式 `instance_id`；CLI 不会生成或猜测实例身份。
+当前安装 manifest 必须使用精确的 `contract_version: 0.3-draft`，并由项目负责人或受控编排器提供符合契约的显式 `instance_id`；CLI 不会生成或猜测实例身份。`layout.agent_entry_integration` 也是必填对象：新项目或仅保留已有入口时使用 `preserve-or-generate` + `approved_sha256: null`；只有明确批准已有 `AGENTS.md` 原始字节时才使用 `append-managed-reference` + 对应 SHA-256。
 
 ```powershell
 $env:AIGOV_ENABLE_EXPERIMENTAL_PLAN = '1'
@@ -42,13 +42,13 @@ $env:AIGOV_ENABLE_EXPERIMENTAL_PLAN = '1'
 if ($LASTEXITCODE -ne 0) { throw "valid plan exit code was $LASTEXITCODE" }
 ```
 
-预期 stdout 是单行 JSON envelope，包含四个最小安装目标和条件资源；空目标仓库中的 action 为 `CREATE`/`SKIP`：
+预期 stdout 是单行 JSON envelope，包含基础安装目标和条件资源；空目标仓库中的 action 为 `CREATE`/`SKIP`：
 
 ```json
-{"contract_version":"0.2-draft","instance_id":"inst-example-01","operations":[...]}
+{"contract_version":"0.3-draft","instance_id":"inst-example-01","operations":[...]}
 ```
 
-每项 operation 固定给出 `action`、`logical_id`、项目相对 `path`、`ownership`、expected/actual SHA-256 和 `reason`。已有 project-owned `AGENTS.md` 只会 `NOOP project_fact_preserved`；tool-owned 文件不一致时输出 `CONFLICT` 并返回 2。
+每项 operation 固定给出 `action`、`logical_id`、项目相对 `path`、`ownership`、expected/actual SHA-256 和 `reason`。`preserve-or-generate` 下已有 project-owned `AGENTS.md` 仍为 `NOOP project_fact_preserved`，且不会创建 phase snapshot。`append-managed-reference` 下获批入口输出 `UPDATE/shared`，原字节保持为精确前缀，同时生成 `.ai-governance/phase.json`；摘要漂移或托管块冲突时 fail-closed。tool-owned 文件不一致时输出 `CONFLICT` 并返回 2。
 
 执行已批准计划时，manifest 的 `integration.mode` 必须为 `apply`。对 plan stdout 原始字节（包含末尾 LF）计算 SHA-256，再显式传入：
 
@@ -58,7 +58,7 @@ $env:AIGOV_ENABLE_EXPERIMENTAL_APPLY = '1'
 if ($LASTEXITCODE -ne 0) { throw "apply failed with $LASTEXITCODE" }
 ```
 
-首次成功返回 `status: APPLIED` 和实际创建路径；批准新的全 NOOP plan 后再次执行返回 `status: NO_CHANGES`。摘要不匹配、conflict、已有 lock 或 target 变化均在写入前停止。目标仓库必须由单一负责人控制并在 apply 期间保持静默；本切片不对抗拥有仓库写权限的恶意并发进程。
+首次成功返回 `status: APPLIED` 和实际创建路径；`created` 只列 CREATE，不把 UPDATE 冒充新文件。批准新的全 NOOP plan 后再次执行返回 `status: NO_CHANGES`。UPDATE 在 lock 内复算并再次核对 preimage，使用同目录 temp/backup；可观察失败恢复原字节、mode 与 mtime，无法安全恢复时保留 recovery lock 并返回 `E_APPLY_ROLLBACK`。摘要不匹配、conflict、已有 lock 或 target 变化均停止。目标仓库必须由单一负责人控制并在 apply 期间保持静默；本切片不对抗拥有仓库写权限的恶意并发进程，也不提供强杀/掉电后的自动恢复命令。
 
 运行失败输入：
 
@@ -100,3 +100,4 @@ if ($LASTEXITCODE -ne 2) { throw "disabled plan exit code was $LASTEXITCODE" }
 - 2026-11-25：增加测试先行的实验性只读 `plan`、严格 manifest 校验与关闭示例。
 - 2026-11-25：把有效输出扩展为确定性安装文件计划，加入 instance/schema 字节摘要、项目事实保护与 target safety 检查；仍不提供 apply。
 - 2026-11-25：增加绑定完整 plan 摘要的最小 apply、exclusive lock、sibling temp、hard-link no-replace、幂等与进程内失败回滚。
+- 2026-11-25：实现安装契约 `0.3-draft`；增加已有 `AGENTS.md` 的获批 append-only shared UPDATE、仅 append 模式生成的 phase snapshot、同目录 backup 与安全回滚。

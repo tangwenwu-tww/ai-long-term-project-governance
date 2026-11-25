@@ -19,7 +19,7 @@ import (
 	contractv0 "example.invalid/aigov/contracts/v0"
 )
 
-const contractVersion = "0.2-draft"
+const contractVersion = "0.3-draft"
 
 var (
 	subjectPattern  = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}:[A-Za-z0-9][A-Za-z0-9._@+/-]{0,127}$`)
@@ -81,10 +81,11 @@ type Result struct {
 	Prepared    []PreparedFile
 }
 
-// PreparedFile binds one CREATE operation to the exact bytes apply may publish.
+// PreparedFile binds one CREATE or UPDATE operation to exact target bytes.
 type PreparedFile struct {
-	Operation Operation
-	Content   []byte
+	Operation       Operation
+	Content         []byte
+	PreviousContent []byte
 }
 
 type Operation struct {
@@ -257,9 +258,18 @@ func (v *validator) validateStructure() {
 
 	layout, ok := v.object(v.root, "layout", "/layout")
 	if ok {
-		v.unknown(layout, "/layout", keys("profile", "resources"))
-		v.required(layout, "/layout", "profile", "resources")
+		v.unknown(layout, "/layout", keys("profile", "resources", "agent_entry_integration"))
+		v.required(layout, "/layout", "profile", "resources", "agent_entry_integration")
 		v.expect(layout, "profile", "/layout/profile", "string", false)
+		entry, entryOK := v.object(layout, "agent_entry_integration", "/layout/agent_entry_integration")
+		if entryOK {
+			v.unknown(entry, "/layout/agent_entry_integration", keys("mode", "approved_sha256"))
+			v.required(entry, "/layout/agent_entry_integration", "mode", "approved_sha256")
+			v.expect(entry, "mode", "/layout/agent_entry_integration/mode", "string", false)
+			if raw, present := entry["approved_sha256"]; present && raw != nil {
+				v.expect(entry, "approved_sha256", "/layout/agent_entry_integration/approved_sha256", "string", false)
+			}
+		}
 		resources, resourcesOK := v.object(layout, "resources", "/layout/resources")
 		if resourcesOK {
 			for resource, value := range resources {
@@ -366,6 +376,7 @@ func (v *validator) validateFieldsAndEnvironment() {
 	}
 	if layoutOK {
 		v.enum(layout, "profile", "/layout/profile", []string{"default-v0", "custom-v0"})
+		v.validateAgentEntryIntegration(layout)
 		v.validateResources(layout)
 		if len(v.diagnostics) == 0 {
 			v.validatePlanPathCollisions()
@@ -373,6 +384,33 @@ func (v *validator) validateFieldsAndEnvironment() {
 	}
 	if projectOK && governanceOK {
 		v.validateEnvironment(project, governance)
+	}
+}
+
+func (v *validator) validateAgentEntryIntegration(layout map[string]any) {
+	entry, ok := mapAt(layout, "agent_entry_integration")
+	if !ok || !v.valid("/layout/agent_entry_integration") {
+		return
+	}
+	v.enum(entry, "mode", "/layout/agent_entry_integration/mode", []string{"preserve-or-generate", "append-managed-reference"})
+	mode, modeOK := entry["mode"].(string)
+	approved, present := entry["approved_sha256"]
+	if !modeOK || !present {
+		return
+	}
+	pointer := "/layout/agent_entry_integration/approved_sha256"
+	switch mode {
+	case "preserve-or-generate":
+		if approved != nil {
+			v.add("E_INCONSISTENT", pointer, "")
+			v.invalid[pointer] = true
+		}
+	case "append-managed-reference":
+		value, ok := approved.(string)
+		if !ok || !shaPattern.MatchString(value) {
+			v.add("E_VALUE", pointer, "")
+			v.invalid[pointer] = true
+		}
 	}
 }
 
@@ -600,6 +638,9 @@ func (v *validator) validatePlanPathCollisions() {
 		"design_spec":                              v.resources["design_spec"],
 		"project_decisions":                        v.resources["project_decisions"],
 	}
+	if entryIntegrationMode(v.root) == "append-managed-reference" {
+		targets["phase_snapshot"] = v.resources["phase_snapshot"]
+	}
 	baseID := func(logicalID string) string {
 		if strings.HasPrefix(logicalID, "schema_root/") {
 			return "schema_root"
@@ -646,8 +687,36 @@ func (v *validator) validatePlanPathCollisions() {
 func (v *validator) buildPlan(methodologyVersion string) Result {
 	project := v.root["project"].(map[string]any)
 	governance := v.root["governance"].(map[string]any)
+	entryMode := entryIntegrationMode(v.root)
 	installSchema := contractv0.InstallManifestSchema()
 	instanceSchema := contractv0.InstanceSchema()
+	managedFiles := map[string]string{
+		"schema_root/install-manifest.schema.json": sha256Hex(installSchema),
+		"schema_root/instance.schema.json":         sha256Hex(instanceSchema),
+	}
+	var phaseBytes []byte
+	if entryMode == "append-managed-reference" {
+		basis := governance["phase_basis"].(map[string]any)
+		phaseSnapshot := struct {
+			SchemaVersion  string `json:"schema_version"`
+			InstanceID     string `json:"instance_id"`
+			Phase          int64  `json:"phase"`
+			CoreHypothesis string `json:"core_hypothesis"`
+			PhaseBasis     struct {
+				AssessedAt string   `json:"assessed_at"`
+				AssessedBy string   `json:"assessed_by"`
+				Signals    []string `json:"signals"`
+			} `json:"phase_basis"`
+		}{
+			SchemaVersion: "0.1-draft", InstanceID: v.root["instance_id"].(string),
+			Phase: mustInteger(governance["phase"]), CoreHypothesis: governance["core_hypothesis"].(string),
+		}
+		phaseSnapshot.PhaseBasis.AssessedAt = basis["assessed_at"].(string)
+		phaseSnapshot.PhaseBasis.AssessedBy = basis["assessed_by"].(string)
+		phaseSnapshot.PhaseBasis.Signals = stringValues(basis["signals"].([]any))
+		phaseBytes, _ = marshalJSONLine(phaseSnapshot)
+		managedFiles["phase_snapshot"] = sha256Hex(phaseBytes)
+	}
 	instance := instanceManifest{
 		SchemaVersion:          "0.1-draft",
 		InstanceID:             v.root["instance_id"].(string),
@@ -655,10 +724,7 @@ func (v *validator) buildPlan(methodologyVersion string) Result {
 		MethodologyVersion:     methodologyVersion,
 		AssuranceLevel:         "declarative",
 		Resources:              v.resources,
-		ManagedFiles: map[string]string{
-			"schema_root/install-manifest.schema.json": sha256Hex(installSchema),
-			"schema_root/instance.schema.json":         sha256Hex(instanceSchema),
-		},
+		ManagedFiles:           managedFiles,
 	}
 	instanceBytes, err := marshalJSONLine(instance)
 	if err != nil {
@@ -693,6 +759,12 @@ func (v *validator) buildPlan(methodologyVersion string) Result {
 		{"schema_root/install-manifest.schema.json", path.Join(v.resources["schema_root"], "install-manifest.schema.json"), "tool", installSchema},
 		{"schema_root/instance.schema.json", path.Join(v.resources["schema_root"], "instance.schema.json"), "tool", instanceSchema},
 	}
+	if entryMode == "append-managed-reference" {
+		targets = append(targets, struct {
+			logicalID, relative, ownership string
+			expected                       []byte
+		}{"phase_snapshot", v.resources["phase_snapshot"], "tool", phaseBytes})
+	}
 	operations := make([]Operation, 0, 6)
 	contentByID := make(map[string][]byte, len(targets))
 	conflict := false
@@ -704,7 +776,33 @@ func (v *validator) buildPlan(methodologyVersion string) Result {
 		}
 		expectedHash := sha256Hex(target.expected)
 		operation := Operation{LogicalID: target.logicalID, Path: target.relative, Ownership: target.ownership}
-		if !exists {
+		if target.logicalID == "agent_entry" && entryMode == "append-managed-reference" {
+			if !exists {
+				v.add("E_INCONSISTENT", "/targets/agent_entry", "")
+				continue
+			}
+			approved := approvedAgentEntrySHA(v.root)
+			postimage, state, entryErr := managedEntryPostimage(actual, v.resources["instance_manifest"], approved)
+			if entryErr != "" {
+				v.add(entryErr, "/targets/agent_entry", "")
+				continue
+			}
+			operation.Ownership = "shared"
+			operation.ActualSHA256 = stringPtr(sha256Hex(actual))
+			switch state {
+			case "matches":
+				operation.Action, operation.Reason = "NOOP", "managed_reference_matches"
+				operation.ExpectedSHA256 = stringPtr(sha256Hex(actual))
+			case "conflict":
+				operation.Action, operation.Reason = "CONFLICT", "managed_reference_differs"
+				operation.ExpectedSHA256 = stringPtr(sha256Hex(postimage))
+				conflict = true
+			default:
+				operation.Action, operation.Reason = "UPDATE", "managed_reference_append"
+				operation.ExpectedSHA256 = stringPtr(sha256Hex(postimage))
+				contentByID[target.logicalID] = append([]byte(nil), postimage...)
+			}
+		} else if !exists {
 			operation.Action, operation.Reason = "CREATE", "target_missing"
 			operation.ExpectedSHA256 = stringPtr(expectedHash)
 		} else if target.ownership == "project" {
@@ -722,7 +820,9 @@ func (v *validator) buildPlan(methodologyVersion string) Result {
 			}
 		}
 		operations = append(operations, operation)
-		contentByID[target.logicalID] = append([]byte(nil), target.expected...)
+		if _, set := contentByID[target.logicalID]; !set {
+			contentByID[target.logicalID] = append([]byte(nil), target.expected...)
+		}
 	}
 	if len(v.diagnostics) != 0 {
 		sort.Slice(v.diagnostics, func(i, j int) bool {
@@ -754,8 +854,13 @@ func (v *validator) buildPlan(methodologyVersion string) Result {
 	}
 	prepared := make([]PreparedFile, 0, len(operations))
 	for _, operation := range operations {
-		if operation.Action == "CREATE" {
-			prepared = append(prepared, PreparedFile{Operation: operation, Content: contentByID[operation.LogicalID]})
+		if operation.Action == "CREATE" || operation.Action == "UPDATE" {
+			file := PreparedFile{Operation: operation, Content: contentByID[operation.LogicalID]}
+			if operation.Action == "UPDATE" {
+				_, previous, _ := v.readTarget(operation.LogicalID, operation.Path)
+				file.PreviousContent = previous
+			}
+			prepared = append(prepared, file)
 		}
 	}
 	integration := v.root["integration"].(map[string]any)
@@ -865,6 +970,98 @@ func stringValues(values []any) []string {
 	return result
 }
 
+func entryIntegrationMode(root map[string]any) string {
+	layout, _ := root["layout"].(map[string]any)
+	entry, _ := layout["agent_entry_integration"].(map[string]any)
+	mode, _ := entry["mode"].(string)
+	return mode
+}
+
+func approvedAgentEntrySHA(root map[string]any) string {
+	layout, _ := root["layout"].(map[string]any)
+	entry, _ := layout["agent_entry_integration"].(map[string]any)
+	approved, _ := entry["approved_sha256"].(string)
+	return approved
+}
+
+const managedEntryTemplate = "<!-- aigov:managed-entry:v1 begin -->\n" +
+	"AI Agent: after reading this file, read the governance instance manifest at\n" +
+	"`%s`, then read the `phase_snapshot` resource\n" +
+	"named there. These local files expose the instance ID, current phase, and core\n" +
+	"hypothesis. Confirmed project facts in this file take precedence on conflict.\n" +
+	"Do not edit this managed block manually.\n" +
+	"<!-- aigov:managed-entry:v1 end -->\n"
+
+func managedEntryPostimage(existing []byte, instancePath, approved string) ([]byte, string, string) {
+	if !utf8.Valid(existing) || strings.IndexByte(string(existing), 0) >= 0 {
+		return nil, "", "E_VALUE"
+	}
+	begin := []byte("<!-- aigov:managed-entry:v1 begin -->")
+	end := []byte("<!-- aigov:managed-entry:v1 end -->")
+	beginCount, endCount := strings.Count(string(existing), string(begin)), strings.Count(string(existing), string(end))
+	if beginCount != 0 || endCount != 0 {
+		if beginCount != 1 || endCount != 1 {
+			return existing, "conflict", ""
+		}
+		marker := strings.Index(string(existing), string(begin))
+		for cut := marker; cut >= 0 && cut >= marker-4; cut-- {
+			prefix := existing[:cut]
+			post, errCode := renderManagedEntry(prefix, instancePath)
+			if errCode == "" && sha256Hex(prefix) == approved && string(post) == string(existing) {
+				return post, "matches", ""
+			}
+		}
+		return existing, "conflict", ""
+	}
+	if sha256Hex(existing) != approved {
+		return nil, "", "E_HASH_MISMATCH"
+	}
+	post, errCode := renderManagedEntry(existing, instancePath)
+	if errCode != "" {
+		return nil, "", errCode
+	}
+	return post, "update", ""
+}
+
+func renderManagedEntry(prefix []byte, instancePath string) ([]byte, string) {
+	newline := "\n"
+	seenLF, seenCRLF := false, false
+	for index := 0; index < len(prefix); index++ {
+		switch prefix[index] {
+		case '\r':
+			if index+1 >= len(prefix) || prefix[index+1] != '\n' {
+				return nil, "E_VALUE"
+			}
+			seenCRLF = true
+			index++
+		case '\n':
+			seenLF = true
+		}
+	}
+	if seenLF && seenCRLF {
+		return nil, "E_VALUE"
+	}
+	if seenCRLF {
+		newline = "\r\n"
+	}
+	body := fmt.Sprintf(managedEntryTemplate, instancePath)
+	if newline == "\r\n" {
+		body = strings.ReplaceAll(body, "\n", "\r\n")
+	}
+	result := append([]byte(nil), prefix...)
+	if len(result) != 0 {
+		double, single := []byte(newline+newline), []byte(newline)
+		switch {
+		case strings.HasSuffix(string(result), string(double)):
+		case strings.HasSuffix(string(result), string(single)):
+			result = append(result, single...)
+		default:
+			result = append(result, double...)
+		}
+	}
+	return append(result, []byte(body)...), ""
+}
+
 func validateInstanceBytes(raw []byte, expectedResources map[string]string, methodologyVersion string) error {
 	value, err := decodeJSON(raw)
 	if err != nil {
@@ -902,6 +1099,11 @@ func validateInstanceBytes(raw []byte, expectedResources map[string]string, meth
 	}
 	managed, ok := root["managed_files"].(map[string]any)
 	wantManaged := []string{"schema_root/install-manifest.schema.json", "schema_root/instance.schema.json"}
+	if ok {
+		if _, present := managed["phase_snapshot"]; present {
+			wantManaged = append(wantManaged, "phase_snapshot")
+		}
+	}
 	if !ok || !exactObjectKeys(managed, wantManaged) {
 		return fmt.Errorf("invalid managed_files")
 	}
@@ -1154,7 +1356,7 @@ func diagnostic(code, pointer, detail string) Diagnostic {
 	case "E_UNKNOWN_FIELD":
 		message = "remove unknown field " + pointer
 	case "E_CONTRACT_VERSION":
-		message = "set contract_version to 0.2-draft"
+		message = "set contract_version to " + contractVersion
 	case "E_TYPE":
 		message = "set " + pointer + " to JSON type " + detail
 	case "E_ENUM":
@@ -1168,7 +1370,11 @@ func diagnostic(code, pointer, detail string) Diagnostic {
 	case "E_FILE_NOT_FOUND":
 		message = "set selection_record.path to an existing project file"
 	case "E_HASH_MISMATCH":
-		message = "set selection_record.sha256 to the selected file SHA-256"
+		if pointer == "/targets/agent_entry" {
+			message = "set approved_sha256 to the current project-owned agent entry SHA-256"
+		} else {
+			message = "set selection_record.sha256 to the selected file SHA-256"
+		}
 	case "E_UNKNOWN_RESOURCE":
 		message = "use a known logical resource ID at " + pointer
 	case "E_UNSAFE_PATH":
