@@ -1,0 +1,26 @@
+{
+  "contract_version": "0.1-draft",
+  "project": {
+    "name": "x",
+    "root": ".",
+    "technology": [],
+    "has_frontend": false,
+    "git_required": false
+  },
+  "governance": {
+    "phase": 0,
+    "core_hypothesis": "X",
+    "selection_finalized": false,
+    "selection_record": null,
+    "independent_review_available": false,
+    "independent_review_source": null
+  },
+  "integration": {
+    "ci": "none",
+    "mode": "plan"
+  },
+  "layout": {
+    "profile": "default-v0",
+    "resources": {}
+  }
+}

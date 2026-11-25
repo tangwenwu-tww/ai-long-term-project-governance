@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/aigov/contracts/v0/install-manifest.schema.json",
+  "title": "aigov v0 install manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "project", "governance", "integration", "layout"],
+  "properties": {
+    "contract_version": { "const": "0.1-draft" },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "root", "technology", "has_frontend", "git_required"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "root": { "type": "string" },
+        "technology": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "has_frontend": { "type": "boolean" },
+        "git_required": { "type": "boolean" }
+      }
+    },
+    "governance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "phase_basis",
+        "core_hypothesis",
+        "selection_finalized",
+        "selection_record",
+        "independent_review_available",
+        "independent_review_source"
+      ],
+      "properties": {
+        "phase": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "phase_basis": { "$ref": "#/$defs/phase_basis" },
+        "core_hypothesis": { "type": "string", "minLength": 1 },
+        "selection_finalized": { "type": "boolean" },
+        "selection_record": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/selection_record" }
+          ]
+        },
+        "independent_review_available": { "type": "boolean" },
+        "independent_review_source": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/independent_review_source" }
+          ]
+        }
+      }
+    },
+    "integration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ci", "mode"],
+      "properties": {
+        "ci": {
+          "enum": ["none", "github-actions", "gitlab-ci", "azure-pipelines", "other"]
+        },
+        "mode": { "enum": ["plan", "apply"] }
+      }
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "resources"],
+      "properties": {
+        "profile": { "enum": ["default-v0", "custom-v0"] },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "agent_entry": { "type": "string" },
+            "design_spec": { "type": "string" },
+            "project_decisions": { "type": "string" },
+            "instance_manifest": { "type": "string" },
+            "phase_snapshot": { "type": "string" },
+            "maturity_fact_store": { "type": "string" },
+            "maturity_snapshot": { "type": "string" },
+            "policy_snapshot": { "type": "string" },
+            "trust_anchor": { "type": "string" },
+            "runtime_root": { "type": "string" },
+            "schema_root": { "type": "string" },
+            "task_store": { "type": "string" },
+            "evidence_store": { "type": "string" },
+            "review_store": { "type": "string" },
+            "task_state_cache": { "type": "string" },
+            "task_audit_store": { "type": "string" },
+            "phase_audit_store": { "type": "string" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "phase_basis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assessed_at", "assessed_by", "signals"],
+      "properties": {
+        "assessed_at": { "type": "string", "format": "date-time" },
+        "assessed_by": { "type": "string", "minLength": 3 },
+        "signals": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "enum": [
+              "product_idea_exists",
+              "core_hypothesis_proven",
+              "first_external_user",
+              "code_lines>=20000",
+              "module_count>5",
+              "first_production_incident",
+              "team_size>1",
+              "parallel_agent_sessions>3",
+              "max_module_reuse>=3",
+              "compliance_requirement",
+              "long_term_sla_module",
+              "maintenance_freeze"
+            ]
+          }
+        }
+      }
+    },
+    "selection_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "approved_by", "approved_at"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "approved_by": { "type": "string", "minLength": 3 },
+        "approved_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "independent_review_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "assurance_level", "evidence_ref"],
+      "properties": {
+        "provider": { "enum": ["orchestrator", "ci", "manual", "other"] },
+        "assurance_level": { "enum": ["declarative", "verified"] },
+        "evidence_ref": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

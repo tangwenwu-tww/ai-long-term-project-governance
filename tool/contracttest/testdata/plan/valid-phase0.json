@@ -1,0 +1,31 @@
+{
+  "contract_version": "0.1-draft",
+  "project": {
+    "name": "example-service",
+    "root": ".",
+    "technology": ["Go"],
+    "has_frontend": false,
+    "git_required": false
+  },
+  "governance": {
+    "phase": 0,
+    "phase_basis": {
+      "assessed_at": "2026-11-24T10:00:00+08:00",
+      "assessed_by": "human:project-owner",
+      "signals": ["product_idea_exists"]
+    },
+    "core_hypothesis": "Target users choose X because Y",
+    "selection_finalized": false,
+    "selection_record": null,
+    "independent_review_available": false,
+    "independent_review_source": null
+  },
+  "integration": {
+    "ci": "none",
+    "mode": "plan"
+  },
+  "layout": {
+    "profile": "default-v0",
+    "resources": {}
+  }
+}
