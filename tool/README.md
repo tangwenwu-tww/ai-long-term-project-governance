@@ -34,6 +34,8 @@ go build -o ../out/aigov.exe ./cmd/aigov
 
 启用并运行有效 manifest：
 
+当前安装 manifest 必须使用精确的 `contract_version: 0.2-draft`，并由项目负责人或受控编排器提供符合契约的显式 `instance_id`；CLI 不会生成或猜测实例身份。
+
 ```powershell
 $env:AIGOV_ENABLE_EXPERIMENTAL_PLAN = '1'
 ../out/aigov.exe plan --manifest ./contracttest/testdata/plan/valid-phase0.json

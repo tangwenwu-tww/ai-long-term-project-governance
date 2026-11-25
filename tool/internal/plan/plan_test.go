@@ -46,3 +46,16 @@ func TestDiagnosticMessages(t *testing.T) {
 		t.Fatalf("diagnostic = %#v", got)
 	}
 }
+
+func TestInstanceIDPattern(t *testing.T) {
+	for _, value := range []string{"inst-abc", "inst-example-01", "inst-01HZX9ABC_DEF.02"} {
+		if !instancePattern.MatchString(value) {
+			t.Errorf("valid instance ID %q was rejected", value)
+		}
+	}
+	for _, value := range []string{"inst-a", "instance-example", "inst-example/01", " inst-example-01"} {
+		if instancePattern.MatchString(value) {
+			t.Errorf("invalid instance ID %q was accepted", value)
+		}
+	}
+}

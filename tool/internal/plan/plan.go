@@ -18,12 +18,13 @@ import (
 	"unicode/utf8"
 )
 
-const contractVersion = "0.1-draft"
+const contractVersion = "0.2-draft"
 
 var (
-	subjectPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}:[A-Za-z0-9][A-Za-z0-9._@+/-]{0,127}$`)
-	shaPattern     = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	drivePattern   = regexp.MustCompile(`^[A-Za-z]:`)
+	subjectPattern  = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}:[A-Za-z0-9][A-Za-z0-9._@+/-]{0,127}$`)
+	shaPattern      = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	drivePattern    = regexp.MustCompile(`^[A-Za-z]:`)
+	instancePattern = regexp.MustCompile(`^inst-[A-Za-z0-9][A-Za-z0-9._-]{2,122}$`)
 )
 
 var signalValues = []string{
@@ -193,9 +194,10 @@ func decodeValue(decoder *json.Decoder) (any, error) {
 }
 
 func (v *validator) validateStructure() {
-	v.unknown(v.root, "", keys("contract_version", "project", "governance", "integration", "layout"))
-	v.required(v.root, "", "contract_version", "project", "governance", "integration", "layout")
+	v.unknown(v.root, "", keys("contract_version", "instance_id", "project", "governance", "integration", "layout"))
+	v.required(v.root, "", "contract_version", "instance_id", "project", "governance", "integration", "layout")
 	v.expect(v.root, "contract_version", "/contract_version", "string", false)
+	v.expect(v.root, "instance_id", "/instance_id", "string", false)
 
 	project, ok := v.object(v.root, "project", "/project")
 	if ok {
@@ -309,6 +311,10 @@ func (v *validator) validateReviewStructure(review map[string]any) {
 func (v *validator) validateFieldsAndEnvironment() {
 	if value, ok := v.stringAt("/contract_version"); ok && value != contractVersion {
 		v.add("E_CONTRACT_VERSION", "/contract_version", "")
+	}
+	if value, ok := v.stringAt("/instance_id"); ok && !instancePattern.MatchString(value) {
+		v.add("E_VALUE", "/instance_id", "")
+		v.invalid["/instance_id"] = true
 	}
 
 	project, projectOK := mapAt(v.root, "project")
@@ -775,7 +781,7 @@ func diagnostic(code, pointer, detail string) Diagnostic {
 	case "E_UNKNOWN_FIELD":
 		message = "remove unknown field " + pointer
 	case "E_CONTRACT_VERSION":
-		message = "set contract_version to 0.1-draft"
+		message = "set contract_version to 0.2-draft"
 	case "E_TYPE":
 		message = "set " + pointer + " to JSON type " + detail
 	case "E_ENUM":
