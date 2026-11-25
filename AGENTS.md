@@ -12,7 +12,7 @@ status: active
 
 ## 1. 项目基本信息
 - 项目名：AI 长期开发复杂项目
-- 当前阶段：阶段 1（`T-APPLY-001` 与 `T-GOV-001` 已合并 `master`；当前不设人工/独立审核合并门禁，以自动检查和可复核证据为准；`T-E2E-001 r003` 支持 generated-entry 与 preserve-project-entry 两种 profile，只在逐字节复核的隔离副本执行；候选源项目 `F:\oioi` 已有项目自有 AGENTS，将使用 preserve profile，尚未运行 plan/apply 或新 Agent；当前实例缺少机器自动止损 runtime，核心假设仍未端到端验证，不提前进入阶段 2–3 治理）
+- 当前阶段：阶段 1（`T-E2E-001` 的 `e2e-001-a001` 已在 `F:\oioi` 的逐字节复核隔离副本完成 plan、两次批准绑定、apply、幂等复验、新 Agent 执行与只读复算；A 安装与幂等、C 任务边界、F 独立复算兼容为 PASS，B 本地自包含为 `FAIL (LOCAL_ENTRY_FACT_GAP)`，D 可复核证据为 `FAIL (NOT_VERIFIABLE)`，E 自动止损为 `CAPABILITY_MISSING`；整体判定 `CORE_HYPOTHESIS_NOT_PROVEN`，不进入阶段 2；下一任务为 `T-ENTRY-001` 已有 AGENTS 最小可发现入口契约）
 - 技术栈：Markdown 方法论；正式工具层使用 Go `1.27.4` 构建的原生可执行文件；GitHub Releases 是 canonical 分发渠道；Python 3 标准库仅用于 PoC 和回归参考；Node SEA 仅保留为备选
 - 核心假设（一句话）：让一个全新的 AI Agent 仅通过目标项目仓库中的本地治理实例，就能识别项目阶段、遵守任务边界、提供可验证证据、接受独立审查，并在失败时自动止损；治理强度随项目成熟度动态升级。
 
