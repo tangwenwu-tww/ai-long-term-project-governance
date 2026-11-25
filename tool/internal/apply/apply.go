@@ -169,7 +169,11 @@ func Execute(manifestPath, workingDir string, now time.Time, version, approved s
 		if injected("final-hash") || digestFile(finalPath) != expected {
 			return failWithRollback("E_APPLY_WRITE", txn)
 		}
-		if code := verifyFile(finalPath, expected, 0o644); code != "" {
+		mode := file.Mode
+		if mode == 0 {
+			mode = 0o644
+		}
+		if code := verifyFile(finalPath, expected, mode); code != "" {
 			return failWithRollback(code, txn)
 		}
 		if injected("final-attribute") {

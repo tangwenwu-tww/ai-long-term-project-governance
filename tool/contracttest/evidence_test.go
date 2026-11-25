@@ -236,6 +236,11 @@ func TestEvidenceSymlinkIsNotFollowed(t *testing.T) {
 func newEvidenceFixture(t *testing.T, taskID string, allowed []string, commands, criteria []map[string]any) (string, string) {
 	t.Helper()
 	target := t.TempDir()
+	canonicalTarget, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target = canonicalTarget
 	writeEvidenceFile(t, target, ".ai-governance/instance.json", []byte(canonicalInstance))
 	request := map[string]any{
 		"schema_version":      "0.1-draft",
