@@ -75,6 +75,16 @@ type Result struct {
 	Lines       []string
 	Diagnostics []Diagnostic
 	Conflict    bool
+	ProjectRoot string
+	InstanceID  string
+	Mode        string
+	Prepared    []PreparedFile
+}
+
+// PreparedFile binds one CREATE operation to the exact bytes apply may publish.
+type PreparedFile struct {
+	Operation Operation
+	Content   []byte
 }
 
 type Operation struct {
@@ -684,6 +694,7 @@ func (v *validator) buildPlan(methodologyVersion string) Result {
 		{"schema_root/instance.schema.json", path.Join(v.resources["schema_root"], "instance.schema.json"), "tool", instanceSchema},
 	}
 	operations := make([]Operation, 0, 6)
+	contentByID := make(map[string][]byte, len(targets))
 	conflict := false
 	for _, target := range targets {
 		exists, actual, diag := v.readTarget(target.logicalID, target.relative)
@@ -711,6 +722,7 @@ func (v *validator) buildPlan(methodologyVersion string) Result {
 			}
 		}
 		operations = append(operations, operation)
+		contentByID[target.logicalID] = append([]byte(nil), target.expected...)
 	}
 	if len(v.diagnostics) != 0 {
 		sort.Slice(v.diagnostics, func(i, j int) bool {
@@ -740,7 +752,25 @@ func (v *validator) buildPlan(methodologyVersion string) Result {
 	if err != nil {
 		return Result{Diagnostics: []Diagnostic{diagnostic("E_JSON", "", "")}}
 	}
-	return Result{Lines: []string{string(raw)}, Conflict: conflict}
+	prepared := make([]PreparedFile, 0, len(operations))
+	for _, operation := range operations {
+		if operation.Action == "CREATE" {
+			prepared = append(prepared, PreparedFile{Operation: operation, Content: contentByID[operation.LogicalID]})
+		}
+	}
+	integration := v.root["integration"].(map[string]any)
+	return Result{
+		Lines: []string{string(raw)}, Conflict: conflict, ProjectRoot: v.projectRoot,
+		InstanceID: v.root["instance_id"].(string), Mode: integration["mode"].(string), Prepared: prepared,
+	}
+}
+
+// StdoutBytes returns the exact plan stdout bytes covered by plan_sha256.
+func (result Result) StdoutBytes() []byte {
+	if len(result.Lines) == 0 {
+		return nil
+	}
+	return []byte(strings.Join(result.Lines, "\n") + "\n")
 }
 
 func (v *validator) readTarget(logicalID, relative string) (bool, []byte, *Diagnostic) {

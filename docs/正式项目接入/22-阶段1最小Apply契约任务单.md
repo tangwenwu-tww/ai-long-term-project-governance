@@ -5,13 +5,13 @@ audience: 项目负责人、阶段 1 Executor、独立 Reviewer 与维护 aigov 
 status: active
 ---
 
-# APPLY-001-R1：最小 Apply 人工定稿草案
+# APPLY-001-R1：最小 Apply 契约任务单
 
 ## 用途
 
 T-PLAN-002 已能确定性输出四个目标的 `CREATE/NOOP/SKIP/CONFLICT`。本任务只增加一个显式批准、只消费当前计划的最小 `apply`，以便在 blank target 上创建计划中的文件，并在失败时恢复到调用前状态。项目负责人已批准 `APPLY-001-R1`，草案独立复审 PASS，现按 contract-first 顺序执行。
 
-## 建议决定
+## 已批准决定
 
 ### 1. 命令、批准绑定与输出
 
@@ -99,7 +99,7 @@ POSIX 上 lock/temp/final 创建后分别 `Chmod` 并复核为 `0600/0644/0644`�
 - Windows amd64、Linux amd64、macOS arm64 跑相同 portable contract tests；Windows junction 与 Unix symlink/权限用例单独报告。
 - 新进程仅从目标仓库读取 `AGENTS.md` 和 `instance.json`，能确认 instance ID、阶段事实入口和两个 managed schema 摘要；这只是安装 E2E，不宣称核心假设已验证。
 
-## 拟定任务契约
+## 任务契约
 
 ```yaml
 task_id: T-APPLY-001
@@ -155,4 +155,44 @@ doc_purpose: 说明如何批准并安全执行最小 apply，以及失败时何�
 - 2026-11-25：T-PLAN-002 合并 master 后形成 R1 草案，等待独立审查与人工批准。
 - 2026-11-25：首次独立审查 FAIL（Critical 1 / Major 4 / Minor 0）；收紧威胁模型，并补齐内部路径碰撞、纯 CREATE 恢复点、错误闭包和平台 mode 语义，等待复审。
 - 2026-11-25：后续复审关闭 3 个 Major，最终独立审查 PASS（Critical 0 / Major 0 / Minor 0）；项目负责人明确批准 `APPLY-001-R1`，任务转为 active。
+- 2026-11-25：按 contract-first 红灯提交实现最小 apply；代码复审依次发现 4 个 Major、1 个 Major，修复目录 ledger、recovery lock、failure injection 与跨平台安全用例后最终 PASS（Critical 0 / Major 0 / Minor 0）。Windows 本地 test/vet/tidy/build 与黑盒 E2E 已通过；仓库未配置 Git remote，Linux/macOS workflow 实际运行与人工合并仍待后续完成，不提前声称任务全平台完成。
+
+## 合并前实现证据
+
+独立 Reviewer 最终结论：`PASS`（Critical 0 / Major 0 / Minor 0），且未修改工作树。
+
+```text
+go test -count=1 ./...                                                   exit 0
+go vet ./...                                                             exit 0
+go mod tidy -diff                                                        exit 0
+go build -o ../out/aigov-apply-final.exe ./cmd/aigov                    exit 0
+go test -count=1 -run 'TestApplyApprovedPlanAndIdempotence|TestApplyRejectsApprovedPlanAfterTargetChange|TestApplyRejectsParentLinkCreatedAfterApproval|TestWindowsPublishedFinalSharesTempFileIdentity' -v ./contracttest ./internal/apply
+                                                                          exit 0
+git diff --check                                                         exit 0
+```
+
+验收对应：
+
+- 完整 plan stdout SHA-256、mode、conflict 与功能开关均 fail-closed；preflight 和获锁后重算均已覆盖。
+- apply 只发布 `CREATE`；existing AGENTS 的字节、mode、mtime 与 tool-owned `NOOP` 保持不变。
+- sibling temp、exclusive lock、hard-link no-replace、internal namespace 与碰撞矩阵已覆盖。
+- 创建目录立即进入 owned ledger；写入、校验、发布、清理和 rollback 注入矩阵均验证恢复；无法安全回滚时保留或严格重建 recovery lock。
+- blank target 的 `plan → apply → plan → apply(NO_CHANGES)`、target add/modify/delete、Windows junction、Windows hard-link 文件身份、fresh-process 只读治理实例均通过。
+- workflow 固定在 Windows amd64、Linux amd64、macOS arm64 运行同一 `go test -count=1 ./...`；由于当前仓库没有 Git remote，本次尚无 Linux/macOS 新实现运行记录。
+
+`changed_files`：
+
+```text
+.github/workflows/aigov-plan-contract.yml
+AGENTS.md
+docs/正式项目接入/22-阶段1最小Apply契约任务单.md
+docs/正式项目接入/README.md
+tool/README.md
+tool/contracttest/plan_test.go
+tool/internal/apply/apply.go
+tool/internal/apply/apply_test.go
+tool/internal/cli/run.go
+tool/internal/cli/run_test.go
+tool/internal/plan/plan.go
+```
 

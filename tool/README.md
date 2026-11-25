@@ -13,7 +13,7 @@ status: active
 
 ## 不适用
 
-当前切片不提供 `apply`、`doctor`、`upgrade`、`rollback`、状态机、JCS、Ed25519、文件写入或可信发布能力。不要把只读 `plan` 解释为治理实例已经安装。
+当前切片只提供实验性、显式批准的最小 `apply`；不提供 crash auto-recovery、rollback 命令、`doctor`、`upgrade`、状态机、JCS、Ed25519 或可信发布能力。不要把最小安装路径解释为完整治理运行时。
 
 ## 怎么用
 
@@ -49,6 +49,16 @@ if ($LASTEXITCODE -ne 0) { throw "valid plan exit code was $LASTEXITCODE" }
 ```
 
 每项 operation 固定给出 `action`、`logical_id`、项目相对 `path`、`ownership`、expected/actual SHA-256 和 `reason`。已有 project-owned `AGENTS.md` 只会 `NOOP project_fact_preserved`；tool-owned 文件不一致时输出 `CONFLICT` 并返回 2。
+
+执行已批准计划时，manifest 的 `integration.mode` 必须为 `apply`。对 plan stdout 原始字节（包含末尾 LF）计算 SHA-256，再显式传入：
+
+```powershell
+$env:AIGOV_ENABLE_EXPERIMENTAL_APPLY = '1'
+../out/aigov.exe apply --manifest <apply-manifest.json> --plan-sha256 <64位小写SHA-256>
+if ($LASTEXITCODE -ne 0) { throw "apply failed with $LASTEXITCODE" }
+```
+
+首次成功返回 `status: APPLIED` 和实际创建路径；批准新的全 NOOP plan 后再次执行返回 `status: NO_CHANGES`。摘要不匹配、conflict、已有 lock 或 target 变化均在写入前停止。目标仓库必须由单一负责人控制并在 apply 期间保持静默；本切片不对抗拥有仓库写权限的恶意并发进程。
 
 运行失败输入：
 
@@ -89,3 +99,4 @@ if ($LASTEXITCODE -ne 2) { throw "disabled plan exit code was $LASTEXITCODE" }
 - 2026-11-24：建立 Go 1.27 最小 CLI 骨架、自动测试和独立构建入口。
 - 2026-11-25：增加测试先行的实验性只读 `plan`、严格 manifest 校验与关闭示例。
 - 2026-11-25：把有效输出扩展为确定性安装文件计划，加入 instance/schema 字节摘要、项目事实保护与 target safety 检查；仍不提供 apply。
+- 2026-11-25：增加绑定完整 plan 摘要的最小 apply、exclusive lock、sibling temp、hard-link no-replace、幂等与进程内失败回滚。
