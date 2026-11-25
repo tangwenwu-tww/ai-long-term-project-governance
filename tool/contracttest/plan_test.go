@@ -188,7 +188,7 @@ func TestPlanCanonicalFixtures(t *testing.T) {
 	t.Run("valid phase zero", func(t *testing.T) {
 		target := t.TempDir()
 		got := runFixture(t, target, "valid-phase0.json", true)
-		wantStdout := "SKIP project_decisions: lifecycle_not_reached\nSKIP design_spec: no_frontend\n"
+		wantStdout := expectedPlanJSON(t, "blank")
 		if got.code != 0 || got.stdout != wantStdout || got.stderr != "" {
 			t.Fatalf("valid plan = code %d stdout %q stderr %q; want code 0 stdout %q stderr empty", got.code, got.stdout, got.stderr, wantStdout)
 		}
@@ -619,6 +619,173 @@ func TestJSONFailClosedAndDeterministic(t *testing.T) {
 			t.Fatalf("repeat run differs\nfirst:  %#v\nsecond: %#v", first, second)
 		}
 	})
+}
+
+const canonicalInstance = `{"schema_version":"0.1-draft","instance_id":"inst-example-01","install_contract_version":"0.2-draft","methodology_version":"0.1.0-dev","assurance_level":"declarative","resources":{"agent_entry":"AGENTS.md","design_spec":"DESIGN.md","evidence_store":"governance/evidence","instance_manifest":".ai-governance/instance.json","maturity_fact_store":"governance/maturity/facts","maturity_snapshot":".ai-governance/maturity.json","phase_audit_store":"governance/audit/phase","phase_snapshot":".ai-governance/phase.json","policy_snapshot":".ai-governance/policy.json","project_decisions":"docs/decisions.md","review_store":"governance/reviews","runtime_root":".ai-governance/runtime","schema_root":".ai-governance/schemas","task_audit_store":"governance/audit/tasks","task_state_cache":"governance/state","task_store":"governance/tasks","trust_anchor":".ai-governance/trust.json"},"managed_files":{"schema_root/install-manifest.schema.json":"490a29358da5d1ad678effe58635fab5af88cf9693bf0f246d7b30a88abb4ed1","schema_root/instance.schema.json":"6dfe34eda589b1c8a948669fef164c60ff7272b5ed65eeb05f47af669bf559af"}}
+`
+
+const canonicalAgent = `---
+type: reference
+purpose: 目标项目的 AI Agent 本地启动入口与项目事实摘要
+audience: 参与目标项目的 AI Agent 与人类协作者
+status: active
+---
+
+# Target project AI entry
+
+Read this file first, then the instance manifest at:
+
+    ".ai-governance/instance.json"
+
+## Project facts
+
+    {"core_hypothesis":"Target users choose X because Y","instance_id":"inst-example-01","name":"example-service","phase":0,"technology":["Go"]}
+
+## Working boundary
+
+Follow the recorded phase and repository-local task constraints. Do not treat generated tool files as authority over confirmed project facts.
+`
+
+type expectedOperation struct {
+	Action         string  `json:"action"`
+	LogicalID      string  `json:"logical_id"`
+	Path           string  `json:"path"`
+	Ownership      string  `json:"ownership"`
+	ExpectedSHA256 *string `json:"expected_sha256"`
+	ActualSHA256   *string `json:"actual_sha256"`
+	Reason         string  `json:"reason"`
+}
+
+type expectedPlan struct {
+	ContractVersion string              `json:"contract_version"`
+	InstanceID      string              `json:"instance_id"`
+	Operations      []expectedOperation `json:"operations"`
+}
+
+func stringPointer(value string) *string { return &value }
+
+func expectedPlanJSON(t *testing.T, state string) string {
+	t.Helper()
+	const instanceHash = "d2334d08bc2f9fec68d66b5f3af59e213d0f518e940057b194de2f25432bee3b"
+	const installHash = "490a29358da5d1ad678effe58635fab5af88cf9693bf0f246d7b30a88abb4ed1"
+	const instanceSchemaHash = "6dfe34eda589b1c8a948669fef164c60ff7272b5ed65eeb05f47af669bf559af"
+	const agentHash = "08958b0e158adf4141fa7219e67146e439f476f240699306bbbfe3d18435ad0a"
+	const conflictHash = "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+
+	managed := func(logicalID, path, expected string) expectedOperation {
+		action, reason := "CREATE", "target_missing"
+		var actual *string
+		if state == "noop" || state == "conflict" {
+			action, reason, actual = "NOOP", "managed_content_matches", stringPointer(expected)
+		}
+		if state == "conflict" && logicalID == "instance_manifest" {
+			action, reason, actual = "CONFLICT", "managed_content_differs", stringPointer(conflictHash)
+		}
+		return expectedOperation{action, logicalID, path, "tool", stringPointer(expected), actual, reason}
+	}
+	agentAction, agentReason := "CREATE", "target_missing"
+	var agentExpected, agentActual *string = stringPointer(agentHash), nil
+	if state == "noop" || state == "conflict" {
+		agentAction, agentReason = "NOOP", "project_fact_preserved"
+		agentExpected, agentActual = nil, stringPointer(agentHash)
+	}
+	plan := expectedPlan{ContractVersion: "0.2-draft", InstanceID: "inst-example-01", Operations: []expectedOperation{
+		managed("instance_manifest", ".ai-governance/instance.json", instanceHash),
+		managed("schema_root/install-manifest.schema.json", ".ai-governance/schemas/install-manifest.schema.json", installHash),
+		managed("schema_root/instance.schema.json", ".ai-governance/schemas/instance.schema.json", instanceSchemaHash),
+		{agentAction, "agent_entry", "AGENTS.md", "project", agentExpected, agentActual, agentReason},
+		{"SKIP", "design_spec", "DESIGN.md", "project", nil, nil, "no_frontend"},
+		{"SKIP", "project_decisions", "docs/decisions.md", "project", nil, nil, "lifecycle_not_reached"},
+	}}
+	raw, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw) + "\n"
+}
+
+func TestExecutablePlanGoldenStates(t *testing.T) {
+	target := t.TempDir()
+	if got := runManifest(t, target, baseManifest(t, target), true); got.code != 0 || got.stderr != "" || got.stdout != expectedPlanJSON(t, "blank") {
+		t.Fatalf("blank plan = %#v\nwant stdout %q", got, expectedPlanJSON(t, "blank"))
+	}
+
+	writeCanonicalTargets(t, target, false)
+	if got := runManifest(t, target, baseManifest(t, target), true); got.code != 0 || got.stderr != "" || got.stdout != expectedPlanJSON(t, "noop") {
+		t.Fatalf("noop plan = %#v\nwant stdout %q", got, expectedPlanJSON(t, "noop"))
+	}
+
+	if err := os.WriteFile(filepath.Join(target, ".ai-governance", "instance.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := runManifest(t, target, baseManifest(t, target), true); got.code != 2 || got.stderr != "" || got.stdout != expectedPlanJSON(t, "conflict") {
+		t.Fatalf("conflict plan = %#v\nwant stdout %q", got, expectedPlanJSON(t, "conflict"))
+	}
+}
+
+func TestInstanceSchemaAndCanonicalBytes(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(toolRoot, "contracts", "v0", "instance.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(raw)
+	if got, want := hex.EncodeToString(sum[:]), "6dfe34eda589b1c8a948669fef164c60ff7272b5ed65eeb05f47af669bf559af"; got != want {
+		t.Fatalf("instance schema SHA-256 = %s, want %s", got, want)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if schema["additionalProperties"] != false {
+		t.Fatalf("instance schema permits unknown root fields")
+	}
+	for name, content := range map[string]string{"instance": canonicalInstance, "agent": canonicalAgent} {
+		sum := sha256.Sum256([]byte(content))
+		want := map[string]string{"instance": "d2334d08bc2f9fec68d66b5f3af59e213d0f518e940057b194de2f25432bee3b", "agent": "08958b0e158adf4141fa7219e67146e439f476f240699306bbbfe3d18435ad0a"}[name]
+		if got := hex.EncodeToString(sum[:]); got != want {
+			t.Fatalf("%s SHA-256 = %s, want %s", name, got, want)
+		}
+	}
+}
+
+func TestTargetTypeFailsClosed(t *testing.T) {
+	target := t.TempDir()
+	if err := os.Mkdir(filepath.Join(target, "AGENTS.md"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	got := runManifest(t, target, baseManifest(t, target), true)
+	requireOnlyDiagnostic(t, got, "E_TARGET_TYPE", "/targets/agent_entry")
+	if !strings.Contains(got.stderr, "replace target or parent with the required regular file or directory type") {
+		t.Fatalf("target type diagnostic = %q", got.stderr)
+	}
+}
+
+func writeCanonicalTargets(t *testing.T, target string, conflict bool) {
+	t.Helper()
+	schemaDir := filepath.Join(target, ".ai-governance", "schemas")
+	if err := os.MkdirAll(schemaDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	instance := canonicalInstance
+	if conflict {
+		instance = "{}\n"
+	}
+	files := map[string][]byte{
+		filepath.Join(target, "AGENTS.md"):                       []byte(canonicalAgent),
+		filepath.Join(target, ".ai-governance", "instance.json"): []byte(instance),
+	}
+	for _, name := range []string{"install-manifest.schema.json", "instance.schema.json"} {
+		raw, err := os.ReadFile(filepath.Join(toolRoot, "contracts", "v0", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[filepath.Join(schemaDir, name)] = raw
+	}
+	for path, content := range files {
+		if err := os.WriteFile(path, content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func runFixture(t *testing.T, target, name string, enabled bool) commandResult {
