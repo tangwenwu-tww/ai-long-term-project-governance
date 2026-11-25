@@ -99,3 +99,25 @@ func TestExperimentalApplyGuardAndApproval(t *testing.T) {
 		}
 	})
 }
+
+func TestExperimentalEvidenceGuardAndUsage(t *testing.T) {
+	t.Run("disabled", func(t *testing.T) {
+		t.Setenv("AIGOV_ENABLE_EXPERIMENTAL_EVIDENCE", "")
+		var stdout, stderr bytes.Buffer
+		code := Run([]string{"evidence", "begin", "--project", ".", "--request", "request.json"}, &stdout, &stderr)
+		want := "experimental evidence is disabled; set AIGOV_ENABLE_EXPERIMENTAL_EVIDENCE=1 to enable\n"
+		if code != 2 || stdout.String() != "" || stderr.String() != want {
+			t.Fatalf("disabled evidence = code %d stdout %q stderr %q", code, stdout.String(), stderr.String())
+		}
+	})
+
+	t.Run("enabled requires complete arguments", func(t *testing.T) {
+		t.Setenv("AIGOV_ENABLE_EXPERIMENTAL_EVIDENCE", "1")
+		var stdout, stderr bytes.Buffer
+		code := Run([]string{"evidence", "begin"}, &stdout, &stderr)
+		want := "{\"code\":\"E_EVIDENCE_REQUEST\",\"message\":\"required evidence arguments are missing or incompatible\",\"path\":\"/arguments\"}\n"
+		if code != 2 || stdout.String() != "" || stderr.String() != want {
+			t.Fatalf("evidence usage = code %d stdout %q stderr %q", code, stdout.String(), stderr.String())
+		}
+	})
+}

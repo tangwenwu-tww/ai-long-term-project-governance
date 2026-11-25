@@ -1,6 +1,6 @@
 ---
 type: how-to
-purpose: 说明正式 Go CLI 如何构建、测试并运行可关闭的实验性只读 plan
+purpose: 说明正式 Go CLI 如何构建、测试并运行 plan、apply 与机器可复核 evidence 实验命令
 audience: 构建、验证或继续开发 aigov CLI 的 Agent 与维护者
 status: active
 ---
@@ -9,11 +9,11 @@ status: active
 
 ## 用途
 
-用本目录构建和验证 Go canonical source，并运行阶段 1 的实验性只读 `plan`。`plan` 严格校验安装 manifest，输出可审核的单行 JSON 文件计划或稳定 JSONL 诊断，不修改目标项目。
+用本目录构建和验证 Go canonical source，并运行阶段 1 的实验性 `plan`、`apply` 与 `evidence begin/collect`。evidence 用无 Git 内容基线和直接 argv 命令捕获生成可重算 manifest，不依赖 Agent 手工转录。
 
 ## 不适用
 
-当前切片只提供实验性、显式批准的最小 `apply`；不提供 crash auto-recovery、rollback 命令、`doctor`、`upgrade`、状态机、JCS、Ed25519 或可信发布能力。不要把最小安装路径解释为完整治理运行时。
+当前切片只提供实验性、显式开启的最小 `apply` 与 hash-only evidence；不提供 crash auto-recovery、rollback 命令、`doctor`、`upgrade`、stdout/stderr blob/redaction、自动止损、状态机或可信发布能力。
 
 ## 怎么用
 
@@ -79,6 +79,30 @@ if ($LASTEXITCODE -ne 2) { throw "disabled plan exit code was $LASTEXITCODE" }
 
 关闭功能开关不会修改目标项目，也不需要删除任何治理文件。
 
+### 生成机器可复核 evidence
+
+先在任务修改前准备 `0.1-draft` request，其中冻结 task/attempt、`allowed_files`、验收项和不经 shell 解析的 executable + argv。目标项目必须已有 `.ai-governance/instance.json`，且其 `resources.evidence_store` 为安全项目相对路径。
+
+```json
+{"schema_version":"0.1-draft","task_id":"T-EXAMPLE-001","task_revision":1,"attempt_id":"a001","task_sha256":"1111111111111111111111111111111111111111111111111111111111111111","allowed_files":["src/","tests/*.json"],"acceptance_criteria":[{"id":"AC-01","text":"core verification passes","command_ids":["verify"]}],"commands":[{"id":"verify","executable":"go","args":["test","./..."],"cwd":"tool","expected_exit_code":0}]}
+```
+
+```powershell
+$env:AIGOV_ENABLE_EXPERIMENTAL_EVIDENCE = '1'
+$projectRoot = 'C:\path\to\target'
+$requestPath = Join-Path $projectRoot '.ai-governance\requests\T-EXAMPLE-001.json'
+$receiptPath = Join-Path $env:TEMP 'aigov-evidence-begin.json'
+$errorPath = Join-Path $env:TEMP 'aigov-evidence-begin.stderr'
+$process = Start-Process -FilePath '..\out\aigov.exe' -ArgumentList @('evidence','begin','--project',$projectRoot,'--request',$requestPath) -Wait -PassThru -NoNewWindow -RedirectStandardOutput $receiptPath -RedirectStandardError $errorPath
+if ($process.ExitCode -ne 0) { throw "evidence begin failed with $($process.ExitCode)" }
+$beginSHA256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $receiptPath).Hash.ToLowerInvariant()
+
+# 完成任务修改后，传入完整 begin stdout 的摘要。
+..\out\aigov.exe evidence collect --project $projectRoot --request $requestPath --begin-sha256 $beginSHA256
+```
+
+`begin` 创建不可复用的 attempt request/baseline；`collect` 先重算该绑定，再运行全部命令。成功验收返回 0；命令退出码不符、验收项未通过或越界时仍封存 `FAIL` manifest，并返回 1；契约、篡改或安全错误返回 2。manifest 只保留 stdout/stderr 的 raw-byte SHA-256、字节数、UTF-8 与行数摘要，不保留原始输出。
+
 ## 源码边界
 
 - `experiments/delivery-runtime/go/` 只证明 Go 运行时、哈希和签名能力，不复制其中的 JCS/Ed25519 探针。
@@ -93,6 +117,8 @@ if ($LASTEXITCODE -ne 2) { throw "disabled plan exit code was $LASTEXITCODE" }
 - 不要把 `out/aigov.exe` 提交到 Git。
 - 未安装全局 Go 时，使用仓库外或已忽略目录中的官方便携工具链。
 - 不要在自动化环境中默认设置 `AIGOV_ENABLE_EXPERIMENTAL_PLAN`；当前功能必须显式 opt-in。
+- 不要修改 begin 生成的 request/baseline，或对已封存 attempt 重跑 collect；请使用新 attempt ID。
+- evidence 直接启动 executable + argv，不支持 shell pipeline、重定向或自定义环境变量。
 
 ## 更新记录
 
@@ -101,3 +127,4 @@ if ($LASTEXITCODE -ne 2) { throw "disabled plan exit code was $LASTEXITCODE" }
 - 2026-11-25：把有效输出扩展为确定性安装文件计划，加入 instance/schema 字节摘要、项目事实保护与 target safety 检查；仍不提供 apply。
 - 2026-11-25：增加绑定完整 plan 摘要的最小 apply、exclusive lock、sibling temp、hard-link no-replace、幂等与进程内失败回滚。
 - 2026-11-25：实现安装契约 `0.3-draft`；增加已有 `AGENTS.md` 的获批 append-only shared UPDATE、仅 append 模式生成的 phase snapshot、同目录 backup 与安全回滚。
+- 2026-11-25：实现 evidence `0.1-draft` begin/collect；增加无 Git 内容基线、直接 argv 命令摘要、内容变更清单、验收映射与不可覆盖 manifest。

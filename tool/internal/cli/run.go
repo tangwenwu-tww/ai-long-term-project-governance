@@ -8,6 +8,7 @@ import (
 	"time"
 
 	applycmd "example.invalid/aigov/internal/apply"
+	"example.invalid/aigov/internal/evidence"
 	"example.invalid/aigov/internal/plan"
 )
 
@@ -20,12 +21,15 @@ Usage:
   aigov version
   aigov plan --manifest <path>
   aigov apply --manifest <path> --plan-sha256 <sha256>
+  aigov evidence begin --project <root> --request <request.json>
+  aigov evidence collect --project <root> --request <request.json> --begin-sha256 <sha256>
 
 Commands:
   help     Show this help
   version  Show the version
   plan     Validate and print an experimental read-only plan
   apply    Apply an explicitly approved experimental plan
+  evidence Capture an experimental machine-verifiable evidence attempt
 `
 
 // Run handles the minimal CLI surface and returns the process exit code.
@@ -46,9 +50,67 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if args[0] == "apply" {
 		return runApply(args[1:], stdout, stderr)
 	}
+	if args[0] == "evidence" {
+		return runEvidence(args[1:], stdout, stderr)
+	}
 
 	fmt.Fprintf(stderr, "unknown command: %s\n", args[0])
 	fmt.Fprintln(stderr, "Run 'aigov help' for usage.")
+	return 2
+}
+
+func runEvidence(args []string, stdout, stderr io.Writer) int {
+	if os.Getenv("AIGOV_ENABLE_EXPERIMENTAL_EVIDENCE") != "1" {
+		fmt.Fprintln(stderr, "experimental evidence is disabled; set AIGOV_ENABLE_EXPERIMENTAL_EVIDENCE=1 to enable")
+		return 2
+	}
+	if len(args) == 0 || (args[0] != "begin" && args[0] != "collect") {
+		return writeEvidenceDiagnostic(stderr, evidence.Diagnostic{Code: "E_EVIDENCE_REQUEST", Path: "/command", Message: "use evidence begin or evidence collect"})
+	}
+	mode := args[0]
+	projectRoot, requestPath, beginSHA := "", "", ""
+	if (len(args)-1)%2 != 0 {
+		return writeEvidenceDiagnostic(stderr, evidence.Diagnostic{Code: "E_EVIDENCE_REQUEST", Path: "/arguments", Message: "evidence arguments must be flag-value pairs"})
+	}
+	for i := 1; i+1 < len(args); i += 2 {
+		switch args[i] {
+		case "--project":
+			projectRoot = args[i+1]
+		case "--request":
+			requestPath = args[i+1]
+		case "--begin-sha256":
+			beginSHA = args[i+1]
+		default:
+			return writeEvidenceDiagnostic(stderr, evidence.Diagnostic{Code: "E_EVIDENCE_REQUEST", Path: "/arguments", Message: "unknown evidence argument"})
+		}
+	}
+	if projectRoot == "" || requestPath == "" || (mode == "collect" && beginSHA == "") || (mode == "begin" && beginSHA != "") {
+		return writeEvidenceDiagnostic(stderr, evidence.Diagnostic{Code: "E_EVIDENCE_REQUEST", Path: "/arguments", Message: "required evidence arguments are missing or incompatible"})
+	}
+	var result evidence.Result
+	if mode == "begin" {
+		result = evidence.Begin(projectRoot, requestPath)
+	} else {
+		result = evidence.Collect(projectRoot, requestPath, beginSHA, time.Now)
+	}
+	if len(result.Diagnostics) != 0 {
+		for _, item := range result.Diagnostics {
+			if writeEvidenceDiagnostic(stderr, item) != 2 {
+				return 2
+			}
+		}
+		return 2
+	}
+	if err := evidence.WriteCanonical(stdout, result.Output); err != nil {
+		return 2
+	}
+	return result.ExitCode
+}
+
+func writeEvidenceDiagnostic(stderr io.Writer, item evidence.Diagnostic) int {
+	if err := evidence.WriteCanonical(stderr, item); err != nil {
+		return -1
+	}
 	return 2
 }
 
