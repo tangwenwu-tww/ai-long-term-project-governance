@@ -57,3 +57,25 @@ func TestRun(t *testing.T) {
 		})
 	}
 }
+
+func TestExperimentalPlanGuard(t *testing.T) {
+	t.Run("disabled", func(t *testing.T) {
+		t.Setenv("AIGOV_ENABLE_EXPERIMENTAL_PLAN", "")
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		gotCode := Run([]string{"plan", "--manifest", "manifest.json"}, &stdout, &stderr)
+		if gotCode != 2 || stdout.String() != "" || stderr.String() != "experimental plan is disabled; set AIGOV_ENABLE_EXPERIMENTAL_PLAN=1 to enable\n" {
+			t.Fatalf("disabled plan = code %d stdout %q stderr %q", gotCode, stdout.String(), stderr.String())
+		}
+	})
+
+	t.Run("enabled requires manifest", func(t *testing.T) {
+		t.Setenv("AIGOV_ENABLE_EXPERIMENTAL_PLAN", "1")
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		gotCode := Run([]string{"plan"}, &stdout, &stderr)
+		if gotCode != 2 || stdout.String() != "" || stderr.String() != "usage: aigov plan --manifest <path>\n" {
+			t.Fatalf("plan usage = code %d stdout %q stderr %q", gotCode, stdout.String(), stderr.String())
+		}
+	})
+}

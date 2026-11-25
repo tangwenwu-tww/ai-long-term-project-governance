@@ -1,23 +1,23 @@
 ---
 type: how-to
-purpose: 说明正式 Go CLI 骨架如何构建、测试和运行，以及当前明确未实现的能力
+purpose: 说明正式 Go CLI 如何构建、测试并运行可关闭的实验性只读 plan
 audience: 构建、验证或继续开发 aigov CLI 的 Agent 与维护者
 status: active
 ---
 
-# aigov Go CLI 骨架
+# aigov Go CLI
 
 ## 用途
 
-在正式治理功能开发前，用本目录验证 Go canonical source 能被构建、测试并作为原生 CLI 运行。当前命令面刻意只包含 `help`、`version` 和未知命令报错。
+用本目录构建和验证 Go canonical source，并运行阶段 1 的实验性只读 `plan`。`plan` 严格校验安装 manifest，只输出跳过项或稳定 JSONL 诊断，不修改目标项目。
 
 ## 不适用
 
-本骨架不是治理实例安装器，也不提供 `plan`、`apply`、`doctor`、`upgrade`、状态机、JCS、Ed25519、文件写入或可信发布能力。需要这些能力时，应等待对应任务和 contract tests 放行。
+当前切片不提供 `apply`、`doctor`、`upgrade`、`rollback`、状态机、JCS、Ed25519、文件写入或可信发布能力。不要把只读 `plan` 解释为治理实例已经安装。
 
 ## 怎么用
 
-要求 Go 1.27。仓库根目录的 `out/` 已被忽略，可安全用于本地构建产物。
+要求 Go 1.27.4。仓库根目录的 `out/` 已被忽略，可安全用于本地构建产物。
 
 ```powershell
 cd tool
@@ -30,7 +30,41 @@ go build -o ../out/aigov.exe ./cmd/aigov
 ../out/aigov.exe unsupported
 ```
 
-前六条命令应返回 0；`unsupported` 应把诊断写入 stderr 并返回 2。
+除 `unsupported` 外，上述验证命令应返回 0；`unsupported` 应把诊断写入 stderr 并返回 2。
+
+启用并运行有效 manifest：
+
+```powershell
+$env:AIGOV_ENABLE_EXPERIMENTAL_PLAN = '1'
+../out/aigov.exe plan --manifest ./contracttest/testdata/plan/valid-phase0.json
+if ($LASTEXITCODE -ne 0) { throw "valid plan exit code was $LASTEXITCODE" }
+```
+
+预期 stdout：
+
+```text
+SKIP project_decisions: lifecycle_not_reached
+SKIP design_spec: no_frontend
+```
+
+运行失败输入：
+
+```powershell
+../out/aigov.exe plan --manifest ./contracttest/testdata/plan/missing-phase-basis.json
+if ($LASTEXITCODE -ne 2) { throw "invalid plan exit code was $LASTEXITCODE" }
+```
+
+诊断写入 stderr，格式为一行一个 `code`、`path`、`message`；上述输入固定返回 `E_REQUIRED /governance/phase_basis`。
+
+一键关闭与回滚验证：
+
+```powershell
+Remove-Item Env:AIGOV_ENABLE_EXPERIMENTAL_PLAN -ErrorAction SilentlyContinue
+../out/aigov.exe plan --manifest ./contracttest/testdata/plan/valid-phase0.json
+if ($LASTEXITCODE -ne 2) { throw "disabled plan exit code was $LASTEXITCODE" }
+```
+
+关闭功能开关不会修改目标项目，也不需要删除任何治理文件。
 
 ## 源码边界
 
@@ -42,10 +76,12 @@ go build -o ../out/aigov.exe ./cmd/aigov
 
 ## 常见错误 / 注意事项
 
-- 不要把 CLI 空壳通过解读为安装器或治理状态机已经完成。
+- 不要把只读 `plan` 通过解读为安装器或治理状态机已经完成。
 - 不要把 `out/aigov.exe` 提交到 Git。
 - 未安装全局 Go 时，使用仓库外或已忽略目录中的官方便携工具链。
+- 不要在自动化环境中默认设置 `AIGOV_ENABLE_EXPERIMENTAL_PLAN`；当前功能必须显式 opt-in。
 
 ## 更新记录
 
 - 2026-11-24：建立 Go 1.27 最小 CLI 骨架、自动测试和独立构建入口。
+- 2026-11-25：增加测试先行的实验性只读 `plan`、严格 manifest 校验与关闭示例。
