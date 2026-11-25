@@ -2,7 +2,7 @@
 type: reference
 purpose: 冻结已有项目 AGENTS 的显式托管引用块、事实快照、plan 可见性与可回滚边界
 audience: 项目负责人、阶段 1 实现 Agent 与后续复核入口能力的协作者
-status: draft
+status: active
 ---
 
 # T-ENTRY-001 R1：已有 AGENTS 最小可发现入口契约
@@ -78,7 +78,7 @@ status: draft
 - 所有字段只取自已验证 manifest，不读取或推断项目自然语言。
 - `instance.json.managed_files` 必须记录 phase snapshot 的 SHA-256。
 - tool-owned phase snapshot 已存在且字节相同时为 `NOOP managed_content_matches`；不同时为 `CONFLICT managed_content_differs`。
-- `preserve-or-generate` 是否同时生成 phase snapshot 留给 R1 人工批准时定稿；实现不得自行选择。
+- `preserve-or-generate` 不生成 phase snapshot；只有 `append-managed-reference` 生成并管理该文件。
 
 ### 3. 托管引用块
 
@@ -186,13 +186,13 @@ doc_purpose: 让实现者和复核者对已有 AGENTS 的最小托管引用块�
 
 ## 人工批准点
 
-本契约首次允许工具更新已有 project-owned 文件，属于高风险公共契约。只有项目负责人明确回复以下批准语义后，才允许新增红灯测试：
+本契约首次允许工具更新已有 project-owned 文件，属于高风险公共契约。项目负责人已明确回复：
 
 ```text
-批准 ENTRY-001-R1
+批准 ENTRY-001-R1；phase_snapshot 仅由 append-managed-reference 生成
 ```
 
-批准表示接受：`0.3-draft` 版本升级、显式 mode + preimage SHA、tool-owned phase snapshot、shared 托管块、UPDATE plan 可见性、失败恢复要求和本任务 allowed_files；不批准生产实现、对源项目执行或阶段跃迁。
+批准表示接受：`0.3-draft` 版本升级、显式 mode + preimage SHA、仅由 `append-managed-reference` 生成的 tool-owned phase snapshot、shared 托管块、UPDATE plan 可见性、失败恢复要求和本任务 allowed_files；不批准生产实现、对源项目执行或阶段跃迁。
 
 ## 实现前检索结论
 
@@ -201,6 +201,40 @@ doc_purpose: 让实现者和复核者对已有 AGENTS 的最小托管引用块�
 - 当前 project-owned target 只要存在就固定 `NOOP project_fact_preserved`；`PreparedFile` 与 apply 路径只携带和执行 `CREATE`。
 - 现有 target safety、完整 plan stdout SHA-256、获锁后重算、internal namespace、failure injection 和 recovery lock 可作为后续 UPDATE 实现基础，但不能证明覆盖发布与原文件恢复已经解决。
 
+## 红灯基线证据
+
+测试使用从 Go 官方分发元数据解析并校验的 `go1.27.4.windows-amd64.zip`；归档 SHA-256 为 `178ab98950ac69ab25069307dc6ade79f3816e414cce95b4da166a115cde1e7e`，解压到系统临时目录，不读取 `e2e-001-a001` 隔离副本中的工具链。
+
+```text
+go test -count=1 -run '^TestEntry' ./contracttest          exit 1（预期红灯）
+go test -count=1 -run '^$' ./...                           exit 0（全部 package 与新测试可编译）
+go vet ./...                                               exit 0
+go mod tidy -diff                                          exit 0
+go test -count=1 -skip '^TestEntry' ./...                  exit 0（既有测试无回归）
+git diff --check                                           exit 0
+```
+
+红灯 failure signature 固定为当前实现同时返回：
+
+```text
+E_CONTRACT_VERSION /contract_version set contract_version to 0.2-draft
+E_UNKNOWN_FIELD /layout/agent_entry_integration remove unknown field /layout/agent_entry_integration
+```
+
+这证明测试已启动当前 CLI，且缺口位于尚未实现的 `0.3-draft` 与显式入口集成字段；不是编译失败、fixture 写入失败或生产代码被提前修改。红灯覆盖 preserve/generate、UPDATE/shared、phase snapshot、custom path、换行/BOM/空文件、合法块幂等、非法内容与批准组合、apply 幂等及 plan 后目标变化。failure injection 的完整内部步骤矩阵仍由后续生产实现任务在既有 apply 注入框架上落地。
+
+`changed_files`：
+
+```text
+docs/正式项目接入/27-阶段1已有AGENTS最小入口契约任务单.md
+docs/正式项目接入/README.md
+tool/contracttest/entry_test.go
+```
+
+三份文件均在 `allowed_files` 内；没有修改 manifest/schema、plan/apply/CLI 生产实现，没有读取或修改 `F:\oioi` 或先前 E2E 隔离副本。
+
 ## 更新记录
 
 - 2026-11-25：建立 R1 draft；冻结候选 `0.3-draft`、phase snapshot、shared 托管块、UPDATE/rollback 边界和红灯测试矩阵，等待项目负责人批准。
+- 2026-11-25：项目负责人批准 `ENTRY-001-R1`，并定稿 phase snapshot 仅由 `append-managed-reference` 生成；文档转为 active，允许添加契约红灯测试。
+- 2026-11-25：新增可编译的 `entry_test.go` 黑盒矩阵；旧实现以预期的版本/未知字段 signature 红灯，既有测试、vet 与 tidy 无回归。T-ENTRY-001 契约和红灯基线完成，生产实现仍未开始。
