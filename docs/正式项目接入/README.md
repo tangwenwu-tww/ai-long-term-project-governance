@@ -46,6 +46,7 @@ status: active
 | [27：阶段 1 已有 AGENTS 最小入口契约任务单](./27-阶段1已有AGENTS最小入口契约任务单.md) | active | 查看已批准并由 T-ENTRY-002 实现的 0.3-draft、phase snapshot 与 shared 托管引用块契约 |
 | [28：阶段 1 已有 AGENTS 入口生产实现任务单](./28-阶段1已有AGENTS入口生产实现任务单.md) | active | 查看已完成的 0.3-draft、UPDATE/shared、幂等、安全回滚及本地验证证据 |
 | [29：阶段 1 入口实现完成状态同步任务单](./29-阶段1入口实现完成状态同步任务单.md) | active | 区分 a001 历史 FAIL 与入口修复已落地事实，并冻结下一任务 T-EVIDENCE-001 |
+| [30：阶段 1 机器可复核证据契约任务单](./30-阶段1机器可复核证据契约任务单.md) | active | 查看已批准的 begin/collect、无 Git 内容基线、命令输出摘要与验收映射契约 |
 
 `draft` 文档是待审材料，不得作为实现依据。完成独立 Review 与人工定稿后，逐份转为 `active`；在此之前禁止根据其中的候选结构直接开发安装器。
 
@@ -211,3 +212,6 @@ Executor Agent 的固定执行顺序：
 - 2026-11-25：项目负责人批准 `ENTRY-001-R1`，并定稿 phase snapshot 仅由 `append-managed-reference` 生成；T-ENTRY-001 转为 active。
 - 2026-11-25：完成 T-ENTRY-001 契约与红灯测试基线；该基线提交时的生产实现仍只接受 0.2-draft，后续 T-ENTRY-002 才允许实现 UPDATE/shared 与回滚闭包。
 - 2026-11-25：完成 T-ENTRY-002 并提交 `0af271e`；入口能力已实现但尚待新 E2E attempt 复验，D/E 仍未补齐，下一任务推进为 T-EVIDENCE-001。
+- 2026-11-25：建立 T-EVIDENCE-001 R1 draft；候选契约使用 begin/collect 两段式内容基线与 hash-only 命令输出，待项目负责人批准后才添加红灯测试。
+- 2026-11-25：项目负责人批准 `EVIDENCE-001-R1`；契约转 active，允许建立红灯黑盒测试，不批准生产实现。
+- 2026-11-25：完成 T-EVIDENCE-001 红灯黑盒基线；新测试可编译、既有回归全绿，下一任务为 T-EVIDENCE-002 生产实现契约。
