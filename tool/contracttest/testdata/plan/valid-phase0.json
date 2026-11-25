@@ -1,5 +1,6 @@
 {
-  "contract_version": "0.1-draft",
+  "contract_version": "0.2-draft",
+  "instance_id": "inst-example-01",
   "project": {
     "name": "example-service",
     "root": ".",

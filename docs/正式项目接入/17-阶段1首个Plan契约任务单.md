@@ -11,6 +11,8 @@ status: active
 
 阶段 0 已人工放行后，以本任务验证第一个真实安装器核心路径。Executor 必须先提交可执行黑盒 contract tests，记录当前 CLI 因尚无 `plan` 而失败的证据，再实现刚好让这些测试通过的只读纵向切片。
 
+> **版本历史说明（2026-11-25）**：本任务以下 `0.1-draft` 内容是 `T-PLAN-001` 执行时的冻结历史证据。当前安装 manifest 契约已由 [T-CONTRACT-002](./19-安装Manifest-0.2契约升级任务单.md) 升级为必填显式 `instance_id` 的 `0.2-draft`；后续实现不得继续以本任务的 `0.1-draft` 作为当前输入契约。事件、批准与 trust 的 `schema_version: 0.1-draft` 不受该升级影响。
+
 ## 任务契约
 
 ```yaml

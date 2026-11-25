@@ -86,7 +86,7 @@ func TestInstallManifestSchema(t *testing.T) {
 		t.Fatalf("schema is not valid JSON: %v", err)
 	}
 	sum := sha256.Sum256(raw)
-	if got, want := hex.EncodeToString(sum[:]), "dadc0d929d866e994de210d74e5c7407cd44518cd6375160644b4a145cfdee60"; got != want {
+	if got, want := hex.EncodeToString(sum[:]), "490a29358da5d1ad678effe58635fab5af88cf9693bf0f246d7b30a88abb4ed1"; got != want {
 		t.Fatalf("schema SHA-256 = %s, want canonical %s", got, want)
 	}
 	if got := schema["$schema"]; got != "https://json-schema.org/draft/2020-12/schema" {
@@ -95,7 +95,7 @@ func TestInstallManifestSchema(t *testing.T) {
 	if got := schema["additionalProperties"]; got != false {
 		t.Fatalf("root additionalProperties = %v, want false", got)
 	}
-	wantRequired := []string{"contract_version", "governance", "integration", "layout", "project"}
+	wantRequired := []string{"contract_version", "governance", "instance_id", "integration", "layout", "project"}
 	gotRequired := stringSlice(t, schema["required"])
 	sort.Strings(gotRequired)
 	if fmt.Sprint(gotRequired) != fmt.Sprint(wantRequired) {
@@ -105,6 +105,17 @@ func TestInstallManifestSchema(t *testing.T) {
 
 func TestManifestAcceptedDomain(t *testing.T) {
 	target := t.TempDir()
+	for name, instanceID := range map[string]string{
+		"minimum instance id": "inst-abc",
+		"maximum instance id": "inst-" + strings.Repeat("a", 123),
+	} {
+		name, instanceID := name, instanceID
+		t.Run(name, func(t *testing.T) {
+			manifest := baseManifest(t, target)
+			setPointer(t, manifest, "/instance_id", instanceID)
+			requirePlanSuccess(t, runManifest(t, target, manifest, true))
+		})
+	}
 
 	for phase := 0; phase <= 4; phase++ {
 		phase := phase
@@ -209,10 +220,22 @@ func TestPlanFeatureFlag(t *testing.T) {
 	}
 }
 
+func TestManifestContractVersionUpgrade(t *testing.T) {
+	target := t.TempDir()
+	manifest := baseManifest(t, target)
+	setPointer(t, manifest, "/contract_version", "0.1-draft")
+	got := runManifest(t, target, manifest, true)
+	want := "{\"code\":\"E_CONTRACT_VERSION\",\"path\":\"/contract_version\",\"message\":\"set contract_version to 0.2-draft\"}\n"
+	if got.code != 2 || got.stdout != "" || got.stderr != want {
+		t.Fatalf("old contract version = code %d stdout %q stderr %q; want code 2 stdout empty stderr %q", got.code, got.stdout, got.stderr, want)
+	}
+}
+
 func TestManifestRequiredAndTypeMatrix(t *testing.T) {
 	target := t.TempDir()
 	required := []string{
 		"/contract_version",
+		"/instance_id",
 		"/project", "/project/name", "/project/root", "/project/technology", "/project/has_frontend", "/project/git_required",
 		"/governance", "/governance/phase", "/governance/phase_basis", "/governance/phase_basis/assessed_at", "/governance/phase_basis/assessed_by", "/governance/phase_basis/signals", "/governance/core_hypothesis", "/governance/selection_finalized", "/governance/selection_record", "/governance/independent_review_available", "/governance/independent_review_source",
 		"/integration", "/integration/ci", "/integration/mode",
@@ -234,6 +257,7 @@ func TestManifestRequiredAndTypeMatrix(t *testing.T) {
 	}{
 		{"root", "", []any{}},
 		{"contract version", "/contract_version", true},
+		{"instance id", "/instance_id", true},
 		{"project", "/project", "bad"}, {"project name", "/project/name", 1.0}, {"project root", "/project/root", false},
 		{"technology", "/project/technology", "Go"}, {"technology item", "/project/technology/0", true},
 		{"has frontend", "/project/has_frontend", "false"}, {"git required", "/project/git_required", 0.0},
@@ -373,6 +397,10 @@ func TestManifestEnumUnknownAndValueMatrix(t *testing.T) {
 		value         any
 	}{
 		{"blank name", "/project/name", "   "}, {"long name", "/project/name", strings.Repeat("界", 129)},
+		{"short instance id", "/instance_id", "inst-a"},
+		{"bad instance prefix", "/instance_id", "instance-example-01"},
+		{"unsafe instance character", "/instance_id", "inst-example/01"},
+		{"long instance id", "/instance_id", "inst-" + strings.Repeat("a", 124)},
 		{"blank technology", "/project/technology/0", " "},
 		{"duplicate technology", "/project/technology", []any{"Go", " Go "}},
 		{"empty signals", "/governance/phase_basis/signals", []any{}},
@@ -574,7 +602,7 @@ func TestJSONFailClosedAndDeterministic(t *testing.T) {
 	for name, raw := range map[string]string{
 		"malformed":      `{`,
 		"trailing token": `{} {}`,
-		"duplicate key":  `{"contract_version":"0.1-draft","contract_version":"0.1-draft"}`,
+		"duplicate key":  `{"contract_version":"0.2-draft","contract_version":"0.2-draft"}`,
 	} {
 		name, raw := name, raw
 		t.Run(name, func(t *testing.T) {

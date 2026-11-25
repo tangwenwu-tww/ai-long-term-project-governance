@@ -4,9 +4,15 @@
   "title": "aigov v0 install manifest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["contract_version", "project", "governance", "integration", "layout"],
+  "required": ["contract_version", "instance_id", "project", "governance", "integration", "layout"],
   "properties": {
-    "contract_version": { "const": "0.1-draft" },
+    "contract_version": { "const": "0.2-draft" },
+    "instance_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^inst-[A-Za-z0-9][A-Za-z0-9._-]{2,122}$"
+    },
     "project": {
       "type": "object",
       "additionalProperties": false,
