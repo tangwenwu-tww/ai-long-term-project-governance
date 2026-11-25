@@ -38,7 +38,8 @@ status: active
 | [19：安装 Manifest 0.2 契约升级任务单](./19-安装Manifest-0.2契约升级任务单.md) | active | 查看已完成的显式 instance_id、0.2-draft 输入契约与验证证据 |
 | [20：阶段 1 可执行安装 Plan 契约任务单](./20-阶段1可执行安装Plan契约任务单.md) | active | 查看已完成的可审核安装文件计划、target safety、三平台 contract workflow 与验证证据 |
 | [21：阶段 1 可执行 Plan 合并状态同步任务单](./21-阶段1可执行Plan合并状态同步任务单.md) | active | 确认 T-CONTRACT-002/T-PLAN-002 已合并，并冻结下一任务为最小 apply |
-| [22：阶段 1 最小 Apply 契约任务单](./22-阶段1最小Apply契约任务单.md) | active | 查看已通过 Windows 本地验证与独立代码审查、等待三平台 workflow 和人工合并的最小 apply |
+| [22：阶段 1 最小 Apply 契约任务单](./22-阶段1最小Apply契约任务单.md) | active | 查看已通过本地验证、独立代码审查、三平台 6/6 CI 并合并 master 的最小 apply |
+| [23：阶段 1 最小 Apply 合并状态同步任务单](./23-阶段1最小Apply合并状态同步任务单.md) | active | 确认 T-APPLY-001 已合并，并冻结下一任务只建立真实目标仓库 T-E2E-001 契约 |
 
 `draft` 文档是待审材料，不得作为实现依据。完成独立 Review 与人工定稿后，逐份转为 `active`；在此之前禁止根据其中的候选结构直接开发安装器。
 
@@ -194,3 +195,4 @@ Executor Agent 的固定执行顺序：
 ## 更新记录
 
 - 2026-11-24：初版，建立正式项目从 AI Agent 层接入本方法论的入口与最小协议。
+- 2026-11-25：同步 T-APPLY-001 三平台通过与合并状态，并加入 T-STATE-004 导航。

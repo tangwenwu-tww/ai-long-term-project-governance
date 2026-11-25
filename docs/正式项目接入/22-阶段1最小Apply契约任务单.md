@@ -156,6 +156,16 @@ doc_purpose: 说明如何批准并安全执行最小 apply，以及失败时何�
 - 2026-11-25：首次独立审查 FAIL（Critical 1 / Major 4 / Minor 0）；收紧威胁模型，并补齐内部路径碰撞、纯 CREATE 恢复点、错误闭包和平台 mode 语义，等待复审。
 - 2026-11-25：后续复审关闭 3 个 Major，最终独立审查 PASS（Critical 0 / Major 0 / Minor 0）；项目负责人明确批准 `APPLY-001-R1`，任务转为 active。
 - 2026-11-25：按 contract-first 红灯提交实现最小 apply；代码复审依次发现 4 个 Major、1 个 Major，修复目录 ledger、recovery lock、failure injection 与跨平台安全用例后最终 PASS（Critical 0 / Major 0 / Minor 0）。Windows 本地 test/vet/tidy/build 与黑盒 E2E 已通过；仓库未配置 Git remote，Linux/macOS workflow 实际运行与人工合并仍待后续完成，不提前声称任务全平台完成。
+- 2026-11-25：GitHub push 与 PR workflow 的 Windows、Linux、macOS 共 6/6 job 通过；PR `#1` 已人工合并，`master` 合并提交为 `5e0dedd`。T-APPLY-001 的实现、独立审查、本地验证、三平台 CI 与合并均已完成；核心假设仍待真实目标仓库端到端验证。
+
+## 合并后状态
+
+- PR：[#1 feat: apply approved install plan atomically](https://github.com/tangwenwu-tww/ai-long-term-project-governance/pull/1)，已于 2026-11-25 合并。
+- 合并提交：`5e0dedd7b3815e4a868a47a0cfbee90cadc4a99c`。
+- push workflow：[run 45561941164](https://github.com/tangwenwu-tww/ai-long-term-project-governance/actions/runs/45561941164)，Windows、Linux、macOS 3/3 成功。
+- pull request workflow：[run 45561949235](https://github.com/tangwenwu-tww/ai-long-term-project-governance/actions/runs/45561949235)，Windows、Linux、macOS 3/3 成功。
+- 每个平台均通过 `go test -count=1 ./...`、`go vet ./...` 与 `go mod tidy -diff`。
+- 本任务到此完成，但只证明最小 apply 契约成立；不代表全新 Agent 已在真实目标仓库中完成受控任务，也不触发阶段 2。
 
 ## 合并前实现证据
 
