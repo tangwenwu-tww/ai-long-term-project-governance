@@ -86,3 +86,13 @@ doc_purpose: 冻结安装 manifest 0.2 的显式实例身份、兼容策略和�
 ## 更新记录
 
 - 2026-11-25：项目负责人批准显式 `instance_id` 与安装 manifest `0.2-draft` 升级后创建任务。
+- 2026-11-25：以 `e48d4b5` 先冻结 docs/schema/fixtures/contract tests 红灯，再以 `88a1c7f` 更新 validator 与调用文档；最终独立审查 PASS（Critical 0 / Major 0 / Minor 0）。
+
+## 完成证据
+
+- `go test -count=1 ./...`：退出码 0。
+- `go vet ./...`：退出码 0。
+- `go mod tidy -diff`：退出码 0，无 diff。
+- 独立构建和有效 manifest：退出码 0；缺少 `phase_basis`、未知字段与越界路径、功能关闭均按契约返回 2。
+- `0.1-draft` 输入固定返回 `E_CONTRACT_VERSION /contract_version`，message 为 `set contract_version to 0.2-draft`。
+- 最终 changed_files 共 11 个，全部位于本任务 `allowed_files`；未实现任何文件计划、身份生成、`apply`、迁移、状态机或信任逻辑。
